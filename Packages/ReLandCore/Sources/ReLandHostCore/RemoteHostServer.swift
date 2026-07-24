@@ -972,7 +972,11 @@ public final class RemoteHostServer: @unchecked Sendable {
             guard case .active = context.authenticationState else {
                 continue
             }
-            send(error: error, to: context)
+            send(
+                error: error,
+                isRecoverable: true,
+                to: context
+            )
         }
     }
 
