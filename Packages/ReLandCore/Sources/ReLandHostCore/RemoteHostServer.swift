@@ -770,6 +770,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                     case let .failure(error):
                         self.send(
                             error: error,
+                            isRecoverable: true,
                             to: context
                         )
                     }
@@ -808,6 +809,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                     case let .failure(error):
                         self.send(
                             error: error,
+                            isRecoverable: true,
                             to: context
                         )
                     }
