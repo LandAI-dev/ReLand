@@ -663,6 +663,73 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
         }
         server.stop()
     }
+
+    func testRecoverableFrameErrorKeepsConnectionActive() throws {
+        let credential = try PSKCredential.generate(name: "Phone")
+        let port: UInt16 = 45_467
+        let server = RemoteHostServer(
+            frameSource: FailingFrameSource(),
+            inputSink: RecordingInputSink()
+        )
+        let connected = expectation(description: "Controller connected")
+        let frameError = expectation(description: "Frame error received")
+        let connectionFailed = expectation(
+            description: "Connection did not fail"
+        )
+        connectionFailed.isInverted = true
+        let sessions = SessionBag()
+        let didStart = LockedFlag()
+
+        server.onStateChange = { state in
+            guard case .ready = state, didStart.claim() else {
+                return
+            }
+            do {
+                let session = try RemoteClientSession(
+                    address: "127.0.0.1",
+                    port: port,
+                    credential: credential
+                )
+                session.onRemoteError = { error in
+                    XCTAssertEqual(error.code, .internalError)
+                    XCTAssertTrue(error.isRecoverable)
+                    frameError.fulfill()
+                }
+                session.onStateChange = { state in
+                    switch state {
+                    case .connected:
+                        connected.fulfill()
+                    case .failed:
+                        connectionFailed.fulfill()
+                    default:
+                        break
+                    }
+                }
+                sessions.append(session)
+                session.connect()
+            } catch {
+                XCTFail(error.localizedDescription)
+            }
+        }
+
+        server.start(
+            configuration: RemoteHostConfiguration(
+                hostID: "recoverable-frame-error-host",
+                hostName: "Recoverable Frame Error Host",
+                port: port,
+                credentials: [credential]
+            )
+        )
+
+        wait(
+            for: [connected, frameError, connectionFailed],
+            timeout: 2
+        )
+        for session in sessions.all {
+            session.disconnect()
+        }
+        server.stop()
+    }
 }
 
 private final class SessionBag: @unchecked Sendable {
@@ -825,4 +892,29 @@ private final class FailingCaptureSource:
     }
 
     func focusSelectedTarget() {}
+}
+
+private struct FailingFrameSource: RemoteFrameSource {
+    let displayInformation = DisplayInformation(
+        width: 320,
+        height: 180,
+        framesPerSecond: 2
+    )
+
+    func start(
+        frameHandler: @escaping @Sendable (Data) -> Void,
+        errorHandler: @escaping @Sendable (Error) -> Void
+    ) {
+        errorHandler(FailingFrameError.captureFailed)
+    }
+
+    func stop() {}
+}
+
+private enum FailingFrameError: LocalizedError {
+    case captureFailed
+
+    var errorDescription: String? {
+        "The test frame source failed"
+    }
 }
