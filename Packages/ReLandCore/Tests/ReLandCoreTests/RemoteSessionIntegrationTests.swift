@@ -503,6 +503,86 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
         }
         server.stop()
     }
+
+    func testRecoverableTerminalErrorKeepsConnectionActive() throws {
+        let credential = try PSKCredential.generate(name: "Phone")
+        let port: UInt16 = 45_465
+        let server = RemoteHostServer(
+            frameSource: SyntheticJPEGFrameSource(
+                width: 320,
+                height: 180,
+                fps: 2
+            ),
+            inputSink: RecordingInputSink(),
+            terminalService: FailingTerminalService()
+        )
+        let connected = expectation(description: "Controller connected")
+        let terminalError = expectation(
+            description: "Terminal error received"
+        )
+        let connectionFailed = expectation(
+            description: "Connection did not fail"
+        )
+        connectionFailed.isInverted = true
+        let sessions = SessionBag()
+        let didStart = LockedFlag()
+        let didCreateTerminal = LockedFlag()
+
+        server.onStateChange = { state in
+            guard case .ready = state, didStart.claim() else {
+                return
+            }
+            do {
+                let session = try RemoteClientSession(
+                    address: "127.0.0.1",
+                    port: port,
+                    credential: credential
+                )
+                session.onRemoteError = { error in
+                    XCTAssertEqual(error.code, .internalError)
+                    terminalError.fulfill()
+                }
+                session.onStateChange = { state in
+                    switch state {
+                    case .connected:
+                        guard didCreateTerminal.claim() else {
+                            return
+                        }
+                        connected.fulfill()
+                        session.createTerminalSession(
+                            preferredName: "failing-terminal"
+                        )
+                    case .failed:
+                        connectionFailed.fulfill()
+                    default:
+                        break
+                    }
+                }
+                sessions.append(session)
+                session.connect()
+            } catch {
+                XCTFail(error.localizedDescription)
+            }
+        }
+
+        server.start(
+            configuration: RemoteHostConfiguration(
+                hostID: "recoverable-error-host",
+                hostName: "Recoverable Error Host",
+                port: port,
+                credentials: [credential]
+            )
+        )
+
+        wait(
+            for: [connected, terminalError, connectionFailed],
+            timeout: 2
+        )
+        for session in sessions.all {
+            session.disconnect()
+        }
+        server.stop()
+    }
 }
 
 private final class SessionBag: @unchecked Sendable {
@@ -540,5 +620,59 @@ private final class LockedFlag: @unchecked Sendable {
         }
         value = true
         return true
+    }
+}
+
+private struct FailingTerminalService: RemoteTerminalService {
+    func listSessions() throws -> [TerminalSessionInfo] {
+        []
+    }
+
+    func createSession(
+        preferredName: String?,
+        launchProfile: TerminalLaunchProfile,
+        launchArguments: [String],
+        workingDirectory: URL?
+    ) throws -> TerminalSessionInfo {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func attach(
+        attachmentID: UUID,
+        sessionID: String,
+        columns: Int,
+        rows: Int,
+        outputHandler: @escaping @Sendable (Data) -> Void,
+        terminationHandler: @escaping @Sendable () -> Void
+    ) throws -> any RemoteTerminalAttachment {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func openOnMac(sessionID: String) throws {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func killSession(sessionID: String) throws {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func listArtifacts(
+        sessionID: String
+    ) throws -> [TerminalArtifactInfo] {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func readArtifact(
+        request: TerminalArtifactReadRequest
+    ) throws -> TerminalArtifactChunk {
+        throw FailingTerminalError.creationFailed
+    }
+}
+
+private enum FailingTerminalError: LocalizedError {
+    case creationFailed
+
+    var errorDescription: String? {
+        "The test terminal could not be created"
     }
 }
