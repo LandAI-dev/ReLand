@@ -584,6 +584,85 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
         }
         server.stop()
     }
+
+    func testRecoverableCaptureErrorsKeepConnectionActive() throws {
+        let credential = try PSKCredential.generate(name: "Phone")
+        let port: UInt16 = 45_466
+        let server = RemoteHostServer(
+            frameSource: FailingCaptureSource(),
+            inputSink: RecordingInputSink()
+        )
+        let connected = expectation(description: "Controller connected")
+        let captureErrors = expectation(
+            description: "Capture errors received"
+        )
+        captureErrors.expectedFulfillmentCount = 2
+        let connectionFailed = expectation(
+            description: "Connection did not fail"
+        )
+        connectionFailed.isInverted = true
+        let sessions = SessionBag()
+        let didStart = LockedFlag()
+        let didRequestTargets = LockedFlag()
+        let errorCount = LockedCounter()
+
+        server.onStateChange = { state in
+            guard case .ready = state, didStart.claim() else {
+                return
+            }
+            do {
+                let session = try RemoteClientSession(
+                    address: "127.0.0.1",
+                    port: port,
+                    credential: credential
+                )
+                session.onRemoteError = { error in
+                    XCTAssertEqual(error.code, .internalError)
+                    XCTAssertTrue(error.isRecoverable)
+                    if errorCount.increment() == 1 {
+                        session.selectCaptureTarget(id: "missing-window")
+                    }
+                    captureErrors.fulfill()
+                }
+                session.onStateChange = { state in
+                    switch state {
+                    case .connected:
+                        guard didRequestTargets.claim() else {
+                            return
+                        }
+                        connected.fulfill()
+                        session.requestCaptureTargets()
+                    case .failed:
+                        connectionFailed.fulfill()
+                    default:
+                        break
+                    }
+                }
+                sessions.append(session)
+                session.connect()
+            } catch {
+                XCTFail(error.localizedDescription)
+            }
+        }
+
+        server.start(
+            configuration: RemoteHostConfiguration(
+                hostID: "recoverable-capture-error-host",
+                hostName: "Recoverable Capture Error Host",
+                port: port,
+                credentials: [credential]
+            )
+        )
+
+        wait(
+            for: [connected, captureErrors, connectionFailed],
+            timeout: 2
+        )
+        for session in sessions.all {
+            session.disconnect()
+        }
+        server.stop()
+    }
 }
 
 private final class SessionBag: @unchecked Sendable {
@@ -621,6 +700,18 @@ private final class LockedFlag: @unchecked Sendable {
         }
         value = true
         return true
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func increment() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
     }
 }
 
@@ -676,4 +767,62 @@ private enum FailingTerminalError: LocalizedError {
     var errorDescription: String? {
         "The test terminal could not be created"
     }
+}
+
+private final class FailingCaptureSource:
+    RemoteCaptureTargetSource,
+    @unchecked Sendable
+{
+    private let source = SyntheticJPEGFrameSource(
+        width: 320,
+        height: 180,
+        fps: 2
+    )
+
+    var displayInformation: DisplayInformation {
+        source.displayInformation
+    }
+
+    func start(
+        frameHandler: @escaping @Sendable (Data) -> Void,
+        errorHandler: @escaping @Sendable (Error) -> Void
+    ) {
+        source.start(
+            frameHandler: frameHandler,
+            errorHandler: errorHandler
+        )
+    }
+
+    func stop() {
+        source.stop()
+    }
+
+    func listCaptureTargets(
+        completion: @escaping @Sendable (
+            Result<
+                RemoteCaptureTargetListResponse,
+                RemoteCaptureTargetSourceError
+            >
+        ) -> Void
+    ) {
+        completion(.failure(.message("Capture target list failed")))
+    }
+
+    func selectCaptureTarget(
+        id: String,
+        completion: @escaping @Sendable (
+            Result<
+                RemoteCaptureTargetSelected,
+                RemoteCaptureTargetSourceError
+            >
+        ) -> Void
+    ) {
+        completion(.failure(.message("Capture target selection failed")))
+    }
+
+    func currentInputBounds() -> CGRect? {
+        nil
+    }
+
+    func focusSelectedTarget() {}
 }
