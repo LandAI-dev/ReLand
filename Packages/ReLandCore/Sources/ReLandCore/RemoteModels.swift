@@ -240,10 +240,33 @@ public enum RemoteErrorCode: String, Codable, Sendable {
 public struct RemoteErrorMessage: Codable, Equatable, Sendable {
     public let code: RemoteErrorCode
     public let message: String
+    public let isRecoverable: Bool
 
-    public init(code: RemoteErrorCode, message: String) {
+    public init(
+        code: RemoteErrorCode,
+        message: String,
+        isRecoverable: Bool = false
+    ) {
         self.code = code
         self.message = message
+        self.isRecoverable = isRecoverable
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case isRecoverable
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = try container.decode(RemoteErrorCode.self, forKey: .code)
+        message = try container.decode(String.self, forKey: .message)
+        isRecoverable =
+            try container.decodeIfPresent(
+                Bool.self,
+                forKey: .isRecoverable
+            ) ?? false
     }
 }
 

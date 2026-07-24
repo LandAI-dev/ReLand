@@ -540,6 +540,7 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
                 )
                 session.onRemoteError = { error in
                     XCTAssertEqual(error.code, .internalError)
+                    XCTAssertTrue(error.isRecoverable)
                     terminalError.fulfill()
                 }
                 session.onStateChange = { state in
