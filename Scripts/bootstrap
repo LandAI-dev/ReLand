@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT"
+
+command -v xcodegen >/dev/null 2>&1 || {
+  echo "XcodeGen is required. Install it with: brew install xcodegen" >&2
+  exit 1
+}
+
+xcodegen generate
+

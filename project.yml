@@ -1,0 +1,159 @@
+name: ReLand
+
+options:
+  bundleIdPrefix: com.landai
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+packages:
+  ReLandCore:
+    path: Packages/ReLandCore
+  SwiftTerm:
+    path: Vendor/SwiftTerm
+
+targets:
+  ReLand:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/ReLandClient
+        excludes:
+          - Resources
+    resources:
+      - path: Apps/ReLandClient/Resources/Assets.xcassets
+      - path: Apps/ReLandClient/Resources/PrivacyInfo.xcprivacy
+    info:
+      path: Apps/ReLandClient/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: ReLand
+        NSBonjourServices:
+          - _reland._tcp
+        NSCameraUsageDescription: Scan a ReLand pairing code from your Mac.
+        NSLocalNetworkUsageDescription: Find and securely connect to your paired Mac.
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.landai.reland
+        PRODUCT_NAME: ReLand
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - package: ReLandCore
+        product: ReLandCore
+      - package: SwiftTerm
+        product: SwiftTerm
+
+  ReLandHost:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/ReLandHost
+        excludes:
+          - Resources
+    resources:
+      - path: Apps/ReLandHost/Resources/Assets.xcassets
+    info:
+      path: Apps/ReLandHost/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: ReLand Host
+        LSApplicationCategoryType: public.app-category.utilities
+        NSLocalNetworkUsageDescription: Accept secure ReLand connections from your paired devices.
+        NSScreenCaptureUsageDescription: Stream your Mac display to your paired ReLand device.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.landai.reland.host
+        PRODUCT_NAME: ReLandHost
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Apps/ReLandHost/Resources/ReLandHost.entitlements
+        ENABLE_HARDENED_RUNTIME: true
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - package: ReLandCore
+        product: ReLandCore
+      - package: ReLandCore
+        product: ReLandHostCore
+
+  ReLandE2EHost:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Tests/ReLandE2EHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.landai.reland.e2ehost
+        PRODUCT_NAME: ReLandE2EHost
+        CODE_SIGNING_ALLOWED: false
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - package: ReLandCore
+        product: ReLandCore
+      - package: ReLandCore
+        product: ReLandHostCore
+
+  ReLandUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/ReLandUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.landai.reland.uitests
+        TEST_TARGET_NAME: ReLand
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - target: ReLand
+
+schemes:
+  ReLand:
+    build:
+      targets:
+        ReLand: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - ReLandUITests
+
+  ReLandHost:
+    build:
+      targets:
+        ReLandHost: all
+    run:
+      config: Debug
+
+  ReLandE2EHost:
+    build:
+      targets:
+        ReLandE2EHost: all
+    run:
+      config: Debug

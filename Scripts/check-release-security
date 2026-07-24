@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+IOS_DERIVED=${RELAND_RELEASE_IOS_DERIVED_DATA:-/tmp/ReLandReleaseSecurityIOS}
+MAC_DERIVED=${RELAND_RELEASE_MAC_DERIVED_DATA:-/tmp/ReLandReleaseSecurityMac}
+
+cd "$ROOT"
+xcodegen generate
+
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLand \
+  -configuration Release \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$IOS_DERIVED" \
+  build \
+  CODE_SIGNING_ALLOWED=NO \
+  -quiet
+
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLandHost \
+  -configuration Release \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$MAC_DERIVED" \
+  build \
+  CODE_SIGNING_ALLOWED=NO \
+  -quiet
+
+IOS_BINARY="$IOS_DERIVED/Build/Products/Release-iphonesimulator/ReLand.app/ReLand"
+MAC_BINARY="$MAC_DERIVED/Build/Products/Release/ReLandHost.app/Contents/MacOS/ReLandHost"
+
+for binary in "$IOS_BINARY" "$MAC_BINARY"; do
+  if strings "$binary" |
+    grep -E 'reland-e2e-device|RELAND_LIVE_E2E|RELAND_SYNTHETIC|--reland-e2e|--reland-device-list-e2e'
+  then
+    echo "Release binary contains a forbidden E2E marker: $binary" >&2
+    exit 1
+  fi
+done
+
+if /usr/libexec/PlistBuddy \
+  -c 'Print :CFBundleURLTypes' \
+  "$IOS_DERIVED/Build/Products/Release-iphonesimulator/ReLand.app/Info.plist" \
+  >/dev/null 2>&1
+then
+  echo "Release client still registers a custom URL scheme." >&2
+  exit 1
+fi
+
+if grep -Eq \
+  'get-task-allow|allow-dyld-environment-variables|allow-unsigned-executable-memory|disable-library-validation' \
+  Apps/ReLandHost/Resources/ReLandHost.entitlements
+then
+  echo "Release host entitlements contain a forbidden capability." >&2
+  exit 1
+fi
+
+echo "ReLand release security checks passed."

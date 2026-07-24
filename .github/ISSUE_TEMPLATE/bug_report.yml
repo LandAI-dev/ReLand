@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible ReLand problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, pairing payloads, personal screenshots,
+        terminal output, hostnames, private addresses, or file paths.
+        Use private vulnerability reporting for security issues.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ReLand version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - iPhone/iPad client
+        - ReLand Host
+        - Screen Mode
+        - App Mode
+        - Terminal/ReLand AI
+        - Artifacts/Mac files
+        - Build or release tooling
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized-details
+    attributes:
+      label: Sanitized diagnostics
+      description: Remove all private or security-sensitive values.

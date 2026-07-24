@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#075985"/>
+    </linearGradient>
+    <linearGradient id="portal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <rect x="218" y="178" width="588" height="666" rx="142"
+        fill="url(#portal)"/>
+  <rect x="304" y="270" width="416" height="482" rx="82"
+        fill="#0b1324"/>
+  <path d="M780 620 C800 830 620 914 438 826
+           C302 760 286 630 414 552"
+        fill="none" stroke="#f8fafc" stroke-width="66"
+        stroke-linecap="round"/>
+  <path d="M394 492 L532 526 L438 634 Z" fill="#f8fafc"/>
+  <circle cx="675" cy="350" r="34" fill="#5eead4" opacity=".9"/>
+</svg>

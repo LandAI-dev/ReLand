@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+DERIVED_DATA=${RELAND_DEVICE_DERIVED_DATA:-/tmp/ReLandDeviceDerived}
+
+cd "$ROOT"
+xcodegen generate
+
+XCODE_DEVICE_ID=${RELAND_XCODE_DEVICE_ID:-$(
+  xcodebuild \
+    -project ReLand.xcodeproj \
+    -scheme ReLand \
+    -showdestinations 2>/dev/null |
+    sed -nE '/platform:iOS, arch:arm64/ {
+      s/.*id:([^,]+), name:.*/\1/p
+      q
+    }'
+)}
+
+CORE_DEVICE_ID=${RELAND_CORE_DEVICE_ID:-$(
+  xcrun devicectl list devices 2>/dev/null |
+    sed -nE '/available \(paired\)/ {
+      s/.* ([0-9A-F-]{36}) +available.*/\1/p
+      q
+    }'
+)}
+
+if [ -z "$XCODE_DEVICE_ID" ] || [ -z "$CORE_DEVICE_ID" ]; then
+  echo "No paired physical iPhone is available." >&2
+  exit 1
+fi
+
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLand \
+  -configuration Debug \
+  -destination "platform=iOS,id=$XCODE_DEVICE_ID" \
+  -derivedDataPath "$DERIVED_DATA" \
+  build \
+  -allowProvisioningUpdates \
+  -allowProvisioningDeviceRegistration \
+  -quiet
+
+APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphoneos/ReLand.app"
+xcrun devicectl device install app \
+  --device "$CORE_DEVICE_ID" \
+  "$APP_PATH"
+xcrun devicectl device process launch \
+  --device "$CORE_DEVICE_ID" \
+  com.landai.reland
+

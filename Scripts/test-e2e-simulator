@@ -1,0 +1,125 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+DERIVED_IOS=${RELAND_IOS_DERIVED_DATA:-/tmp/ReLandIOSDerived}
+DERIVED_HOST=${RELAND_E2E_DERIVED_DATA:-/tmp/ReLandE2EDerived}
+
+PORT=45455
+
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "ReLand E2E port $PORT is already in use." >&2
+  exit 1
+fi
+
+find_simulator() {
+  pattern=$1
+  xcrun simctl list devices available |
+    sed -nE "/$pattern/ {
+      s/.*\\(([0-9A-F-]{36})\\) \\((Booted|Shutdown)\\).*/\\1/p
+      q
+    }"
+}
+
+IPHONE_UDID=${RELAND_IPHONE_UDID:-$(find_simulator "iPhone")}
+IPAD_UDID=${RELAND_IPAD_UDID:-$(find_simulator "iPad")}
+
+if [ -z "$IPHONE_UDID" ]; then
+  echo "No available iPhone Simulator was found." >&2
+  exit 1
+fi
+
+cd "$ROOT"
+xcodegen generate
+
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLandE2EHost \
+  -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$DERIVED_HOST" \
+  build \
+  -quiet
+
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLand \
+  -configuration Debug \
+  -destination "platform=iOS Simulator,id=$IPHONE_UDID" \
+  -derivedDataPath "$DERIVED_IOS" \
+  build-for-testing \
+  CODE_SIGNING_ALLOWED=NO \
+  -quiet
+
+HOST_LOG=/tmp/ReLandE2EHost.log
+: > "$HOST_LOG"
+RELAND_E2E_PORT="$PORT" \
+  "$DERIVED_HOST/Build/Products/Debug/ReLandE2EHost" \
+  > "$HOST_LOG" 2>&1 &
+HOST_PID=$!
+
+cleanup() {
+  if kill -0 "$HOST_PID" 2>/dev/null; then
+    kill "$HOST_PID"
+    wait "$HOST_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+ready=0
+attempt=0
+while [ "$attempt" -lt 50 ]; do
+  if grep -q "RELAND_E2E_READY:$PORT" "$HOST_LOG"; then
+    ready=1
+    break
+  fi
+  if ! kill -0 "$HOST_PID" 2>/dev/null; then
+    cat "$HOST_LOG" >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.2
+done
+
+if [ "$ready" -ne 1 ]; then
+  cat "$HOST_LOG" >&2
+  echo "ReLand E2E host did not become ready." >&2
+  exit 1
+fi
+
+run_test() {
+  udid=$1
+  result_name=$2
+  result_path="/tmp/$result_name.xcresult"
+
+  xcrun simctl boot "$udid" 2>/dev/null || true
+  xcrun simctl bootstatus "$udid" -b
+  xcrun simctl privacy "$udid" grant local-network \
+    com.landai.reland 2>/dev/null || true
+  rm -rf "$result_path"
+
+  xcodebuild \
+    -project ReLand.xcodeproj \
+    -scheme ReLand \
+    -configuration Debug \
+    -destination "platform=iOS Simulator,id=$udid" \
+    -derivedDataPath "$DERIVED_IOS" \
+    -resultBundlePath "$result_path" \
+    test-without-building \
+    -parallel-testing-enabled NO \
+    -only-testing:ReLandUITests/ReLandUITests/testDeviceActionsAdaptOnPhone \
+    -only-testing:ReLandUITests/ReLandUITests/testSyntheticHostStreamsInputsAndReconnects \
+    -only-testing:ReLandUITests/ReLandUITests/testTerminalScrollingAndAdaptiveLayout \
+    -only-testing:ReLandUITests/ReLandUITests/testBrowseMacFilesAndPreview \
+    -only-testing:ReLandUITests/ReLandUITests/testSelectAppWindowAndUseDirectTouch \
+    CODE_SIGNING_ALLOWED=NO \
+    -quiet
+}
+
+run_test "$IPHONE_UDID" "ReLandIPhoneE2E"
+
+if [ -n "$IPAD_UDID" ]; then
+  run_test "$IPAD_UDID" "ReLandIPadE2E"
+fi
+
+echo "ReLand simulator E2E passed."

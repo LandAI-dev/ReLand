@@ -1,0 +1,719 @@
+import XCTest
+
+@MainActor
+final class ReLandUITests: XCTestCase {
+    func testOnboardingExplainsPurposeAndPrerequisites() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--reland-reset-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Your Mac, back in reach"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(app.staticTexts["No ReLand cloud relay"].exists)
+        XCTAssertTrue(app.staticTexts["Before you pair"].exists)
+        XCTAssertTrue(app.buttons["Continue to ReLand"].isHittable)
+    }
+
+    func testAppSettingsExposeControlsPrivacyAndStorage() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--reland-device-list-e2e"]
+        app.launch()
+
+        let settings = app.buttons["appSettingsButton"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Settings"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.switches["Three-finger app switching"].exists
+        )
+        let clearCache = app.buttons["Clear downloaded cache"]
+        for _ in 0..<4 where !clearCache.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(
+            clearCache.waitForExistence(timeout: 3)
+        )
+        let clipboard = app.switches[
+            "Allow terminal clipboard writes"
+        ]
+        for _ in 0..<4 where !clipboard.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(
+            clipboard.waitForExistence(timeout: 3)
+        )
+    }
+
+    func testEmptyStateIsAccessible() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--reland-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["ReLand"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Add Mac"].exists)
+    }
+
+    func testDeviceActionsAdaptOnPhone() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--reland-device-list-e2e"]
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Percy's Very Long MacBook Pro Name"]
+                .waitForExistence(timeout: 5)
+        )
+        for identifier in [
+            "deviceScreenButton",
+            "deviceAppButton",
+            "deviceTerminalButton",
+        ] {
+            XCTAssertTrue(app.buttons[identifier].isHittable)
+        }
+        attachScreenshot(named: "Device actions")
+    }
+
+    func testSyntheticHostStreamsInputsAndReconnects() {
+        let app = launchE2EApplication()
+
+        let status = app.staticTexts["connectionStatus"]
+        for identifier in [
+            "disconnectButton",
+            "appsButton",
+            "keyboardButton",
+            "terminalButton",
+            "filesButton",
+            "moreButton",
+        ] {
+            XCTAssertTrue(app.buttons[identifier].isHittable)
+        }
+
+        let frames = app.staticTexts["frameCount"]
+        XCTAssertTrue(frames.waitForExistence(timeout: 5))
+        let initialFrameLabel = frames.label
+        waitForLabelChange(
+            from: initialFrameLabel,
+            element: frames,
+            timeout: 5
+        )
+        attachScreenshot(named: "Remote controls")
+
+        let canvas = app.otherElements["remoteCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .tap()
+
+        let acknowledgement = app.staticTexts["lastInputAck"]
+        XCTAssertTrue(acknowledgement.waitForExistence(timeout: 5))
+        waitForLabelChange(
+            from: "No input sent",
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        let dragStart = canvas.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)
+        )
+        let dragEnd = canvas.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)
+        )
+        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        waitForLabelContaining(
+            "move",
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        let zoomStatus = app.staticTexts["zoomStatus"]
+        XCTAssertTrue(zoomStatus.waitForExistence(timeout: 5))
+        let initialZoom = zoomStatus.label
+        canvas.pinch(withScale: 2, velocity: 1)
+        waitForLabelChange(
+            from: initialZoom,
+            element: zoomStatus,
+            timeout: 5
+        )
+        tapRemoteMoreControl(
+            "resetZoomButton",
+            in: app
+        )
+        waitForLabelContaining(
+            "1.0",
+            element: zoomStatus,
+            timeout: 5
+        )
+
+        tapRemoteMoreControl(
+            "rightClickButton",
+            in: app
+        )
+        waitForLabelContaining(
+            "right",
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        tapRemoteMoreControl(
+            "scrollButton",
+            in: app
+        )
+        waitForLabelContaining(
+            "scroll",
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        app.buttons["keyboardButton"].tap()
+        let textField = app.textFields["remoteTextField"]
+        XCTAssertTrue(textField.waitForExistence(timeout: 5))
+        textField.tap()
+        textField.typeText("hello from simulator")
+        app.buttons["sendTextButton"].tap()
+        waitForLabelContaining(
+            "text",
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        app.buttons["terminalButton"].tap()
+        waitForTerminalList(in: app)
+
+        app.buttons["createTerminalButton"].tap()
+        let createTerminal = app.navigationBars["New Terminal"]
+        XCTAssertTrue(
+            app.staticTexts["Shell / manual command"]
+                .waitForExistence(timeout: 15)
+        )
+        app.buttons["chooseProjectFolderButton"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Project Folder"]
+                .waitForExistence(timeout: 5)
+        )
+        let testHome = app.buttons["workingDirectory-@test"]
+        XCTAssertTrue(testHome.waitForExistence(timeout: 5))
+        testHome.tap()
+        let useFolder = app.buttons["useWorkingDirectoryButton"]
+        XCTAssertTrue(useFolder.waitForExistence(timeout: 5))
+        useFolder.tap()
+        XCTAssertTrue(
+            app.staticTexts["selectedWorkingDirectory"]
+                .waitForExistence(timeout: 5)
+        )
+        attachScreenshot(named: "New terminal setup")
+        createTerminal.buttons["Create"].tap()
+        XCTAssertTrue(
+            createTerminal.waitForNonExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.staticTexts["terminal-2"]
+                .waitForExistence(timeout: 10)
+        )
+
+        app.staticTexts["E2E Terminal"].tap()
+        let terminal = app.descendants(
+            matching: .any
+        )["terminalView"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 5))
+        terminal.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        .tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 5)
+        )
+        let focusedTerminal = app.textViews.firstMatch
+        XCTAssertTrue(focusedTerminal.waitForExistence(timeout: 5))
+        focusedTerminal.typeText("hello-terminal")
+
+        let terminalOutput = app.staticTexts[
+            "terminalOutputStatus"
+        ]
+        XCTAssertTrue(
+            terminalOutput.waitForExistence(timeout: 5)
+        )
+        waitForLabelContaining(
+            "hello-terminal",
+            element: terminalOutput,
+            timeout: 5
+        )
+        app.buttons["terminalKeyboardButton"].tap()
+        app.buttons["terminalSessionsButton"].tap()
+        app.buttons["Done"].tap()
+
+        let beforeReconnect = frames.label
+        tapRemoteMoreControl(
+            "reconnectTestButton",
+            in: app
+        )
+        waitForLabel("Connected", element: status, timeout: 10)
+        waitForLabelChange(
+            from: beforeReconnect,
+            element: frames,
+            timeout: 10
+        )
+    }
+
+    func testShowsMacPermissionRecoveryActions() {
+        let app = launchE2EApplication()
+
+        let banner = app.otherElements["hostAttentionBanner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Open Mac Screen"].isHittable)
+        XCTAssertTrue(app.buttons["Retry"].isHittable)
+    }
+
+    func testTerminalScrollingAndAdaptiveLayout() {
+        let app = launchE2EApplication()
+        openTerminal(named: "E2E Terminal", in: app)
+
+        let terminal = app.descendants(
+            matching: .any
+        )["terminalView"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.buttons["terminalInteractionModeButton"].isHittable
+        )
+        XCTAssertTrue(
+            app.buttons["terminalWidthModeButton"].isHittable
+        )
+        XCTAssertTrue(
+            app.buttons["terminalKeyboardButton"].isHittable
+        )
+        let output = app.staticTexts["terminalOutputStatus"]
+        XCTAssertTrue(output.waitForExistence(timeout: 5))
+        waitForLabelContaining(
+            "terminal-scroll-fixture-120",
+            element: output,
+            timeout: 5
+        )
+
+        let liveButton = app.buttons["terminalLiveButton"]
+        XCTAssertFalse(liveButton.exists)
+
+        terminal.swipeDown(velocity: .fast)
+        XCTAssertTrue(
+            liveButton.waitForExistence(timeout: 5)
+        )
+        liveButton.tap()
+        XCTAssertTrue(
+            liveButton.waitForNonExistence(timeout: 5)
+        )
+
+        if terminal.frame.width < 700 {
+            waitForDynamicLabel(
+                "terminalHorizontalScrollStatus",
+                in: app,
+                timeout: 5
+            ) { $0 == "horizontal 0" }
+
+            let moveRight = app.buttons[
+                "terminalViewportRightButton"
+            ]
+            let moveLeft = app.buttons[
+                "terminalViewportLeftButton"
+            ]
+            XCTAssertTrue(moveRight.waitForExistence(timeout: 5))
+            XCTAssertTrue(moveRight.isHittable)
+            moveRight.tap()
+            waitForDynamicLabel(
+                "terminalHorizontalScrollStatus",
+                in: app,
+                timeout: 5
+            ) { $0 != "horizontal 0" }
+            XCTAssertTrue(moveLeft.isHittable)
+            moveLeft.tap()
+            waitForDynamicLabel(
+                "terminalHorizontalScrollStatus",
+                in: app,
+                timeout: 5
+            ) { $0 == "horizontal 0" }
+
+            terminal.swipeLeft(velocity: .fast)
+            waitForDynamicLabel(
+                "terminalHorizontalScrollStatus",
+                in: app,
+                timeout: 5
+            ) { $0 != "horizontal 0" }
+            terminal.swipeRight(velocity: .fast)
+            waitForDynamicLabel(
+                "terminalHorizontalScrollStatus",
+                in: app,
+                timeout: 5
+            ) { $0 == "horizontal 0" }
+        }
+
+        app.buttons["terminalArtifactsButton"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Artifacts"]
+                .waitForExistence(timeout: 5)
+        )
+        let artifact = app.staticTexts["e2e-artifact.txt"]
+        XCTAssertTrue(artifact.waitForExistence(timeout: 5))
+        artifact.tap()
+        XCTAssertTrue(
+            app.navigationBars["e2e-artifact.txt"]
+                .waitForExistence(timeout: 10)
+        )
+
+        let artifactScreenshot = XCTAttachment(
+            screenshot: XCUIScreen.main.screenshot()
+        )
+        artifactScreenshot.name = "Terminal artifact preview"
+        artifactScreenshot.lifetime = .keepAlways
+        add(artifactScreenshot)
+
+        app.navigationBars["e2e-artifact.txt"]
+            .buttons["Done"].tap()
+        app.navigationBars["Artifacts"]
+            .buttons["Done"].tap()
+
+        let portraitScreenshot = XCTAttachment(
+            screenshot: XCUIScreen.main.screenshot()
+        )
+        portraitScreenshot.name = "Terminal portrait"
+        portraitScreenshot.lifetime = .keepAlways
+        add(portraitScreenshot)
+    }
+
+    func testBrowseMacFilesAndPreview() {
+        let app = launchE2EApplication()
+        app.buttons["filesButton"].tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Mac Files"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.buttons["remoteFile-@test"]
+                .waitForExistence(timeout: 5)
+        )
+
+        app.buttons["remoteFile-@test"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Test Home"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["remoteFile-@test/Test Files"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Test Files"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.staticTexts["nested.txt"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["remoteFileParentButton"].tap()
+
+        let homeFile = app.buttons[
+            "remoteFile-@test/home-note.txt"
+        ]
+        XCTAssertTrue(homeFile.waitForExistence(timeout: 5))
+        homeFile.tap()
+        XCTAssertTrue(
+            app.navigationBars["home-note.txt"]
+                .waitForExistence(timeout: 10)
+        )
+
+        let screenshot = XCTAttachment(
+            screenshot: XCUIScreen.main.screenshot()
+        )
+        screenshot.name = "Mac file preview"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        app.navigationBars["home-note.txt"]
+            .buttons["Done"].tap()
+        app.navigationBars["Test Home"]
+            .buttons["Done"].tap()
+    }
+
+    func testSelectAppWindowAndUseDirectTouch() {
+        let app = launchE2EApplication()
+        app.buttons["appsButton"].tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Mac Apps"]
+                .waitForExistence(timeout: 5)
+        )
+        let notesWindow = app.buttons[
+            "captureTarget-window-notes"
+        ]
+        XCTAssertTrue(notesWindow.waitForExistence(timeout: 5))
+        attachScreenshot(named: "Mac Apps picker")
+        notesWindow.tap()
+        XCTAssertTrue(
+            app.navigationBars["Mac Apps"]
+                .waitForNonExistence(timeout: 5)
+        )
+        let dashboard = app.buttons[
+            "appSwitcher-window-dashboard"
+        ]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
+        dashboard.tap()
+        waitForLabelContaining(
+            "Dashboard",
+            element: app.staticTexts["captureTargetStatus"],
+            timeout: 5
+        )
+
+        let acknowledgement = app.staticTexts["lastInputAck"]
+        let beforeInput = acknowledgement.label
+        app.otherElements["remoteCanvas"]
+            .coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+            )
+            .tap()
+        waitForLabelChange(
+            from: beforeInput,
+            element: acknowledgement,
+            timeout: 5
+        )
+
+        attachScreenshot(named: "App Mode direct touch")
+    }
+
+    func testExistingCopilotTerminalUX() throws {
+        guard
+            let sessionName = ProcessInfo.processInfo.environment[
+                "RELAND_E2E_TERMINAL_NAME"
+            ],
+            !sessionName.isEmpty
+        else {
+            throw XCTSkip(
+                "Set RELAND_E2E_TERMINAL_NAME for a local tmux review."
+            )
+        }
+
+        let app = launchE2EApplication()
+        openTerminal(named: sessionName, in: app)
+
+        let terminal = app.descendants(
+            matching: .any
+        )["terminalView"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 5))
+        waitForDynamicLabel(
+            "terminalHorizontalScrollStatus",
+            in: app,
+            timeout: 5
+        ) { $0 == "horizontal 0" }
+
+        let moveRight = app.buttons[
+            "terminalViewportRightButton"
+        ]
+        let moveLeft = app.buttons[
+            "terminalViewportLeftButton"
+        ]
+        XCTAssertTrue(moveRight.waitForExistence(timeout: 5))
+        attachScreenshot(
+            named: "Copilot terminal before moving right"
+        )
+
+        moveRight.tap()
+        waitForDynamicLabel(
+            "terminalHorizontalScrollStatus",
+            in: app,
+            timeout: 5
+        ) { $0 != "horizontal 0" }
+        holdForRecording()
+        attachScreenshot(
+            named: "Copilot terminal moved right"
+        )
+
+        XCTAssertTrue(moveLeft.isHittable)
+        moveLeft.tap()
+        waitForDynamicLabel(
+            "terminalHorizontalScrollStatus",
+            in: app,
+            timeout: 5
+        ) { $0 == "horizontal 0" }
+        holdForRecording()
+        attachScreenshot(
+            named: "Copilot terminal returned left"
+        )
+    }
+
+    func testLiveChromeAppMode() throws {
+        guard
+            let windowTitle = ProcessInfo.processInfo.environment[
+                "RELAND_LIVE_CHROME_TITLE"
+            ],
+            !windowTitle.isEmpty
+        else {
+            throw XCTSkip(
+                "Set RELAND_LIVE_CHROME_TITLE for live Chrome E2E."
+            )
+        }
+
+        let app = launchE2EApplication()
+        let targetStatus = app.staticTexts["captureTargetStatus"]
+        XCTAssertTrue(targetStatus.waitForExistence(timeout: 10))
+        waitForLabel("Screen", element: targetStatus, timeout: 10)
+        waitForDynamicLabel(
+            "frameCount",
+            in: app,
+            timeout: 10
+        ) { $0 != "Frames 0" }
+        holdForRecording()
+        attachScreenshot(
+            named: "Live background Chrome absent from Screen Mode"
+        )
+
+        app.buttons["appsButton"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Mac Apps"]
+                .waitForExistence(timeout: 10)
+        )
+        let chromeWindow = app.staticTexts[windowTitle]
+        XCTAssertTrue(
+            chromeWindow.waitForExistence(timeout: 10)
+        )
+        attachScreenshot(named: "Live Chrome picker")
+        holdForRecording()
+        chromeWindow.tap()
+        XCTAssertTrue(
+            app.navigationBars["Mac Apps"]
+                .waitForNonExistence(timeout: 10)
+        )
+        holdForRecording()
+        attachScreenshot(named: "Live Chrome before tap")
+
+        let acknowledgement = app.staticTexts["lastInputAck"]
+        app.otherElements["remoteCanvas"]
+            .coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+            )
+            .tap()
+        waitForLabelContaining(
+            "left up",
+            element: acknowledgement,
+            timeout: 10
+        )
+        holdForRecording()
+        attachScreenshot(named: "Live Chrome after tap")
+    }
+
+    private func launchE2EApplication() -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--reland-e2e",
+            "--e2e-host",
+            "127.0.0.1",
+            "--e2e-port",
+            "45455",
+        ]
+        app.launch()
+
+        let status = app.staticTexts["connectionStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        waitForLabel("Connected", element: status, timeout: 10)
+        return app
+    }
+
+    private func tapRemoteMoreControl(
+        _ identifier: String,
+        in app: XCUIApplication
+    ) {
+        app.buttons["moreButton"].tap()
+        let control = app.buttons[identifier]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        control.tap()
+    }
+
+    private func waitForTerminalList(in app: XCUIApplication) {
+        XCTAssertTrue(
+            app.navigationBars["Terminal sessions"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    private func openTerminal(
+        named name: String,
+        in app: XCUIApplication
+    ) {
+        app.buttons["terminalButton"].tap()
+        waitForTerminalList(in: app)
+
+        let session = app.staticTexts[name]
+        XCTAssertTrue(session.waitForExistence(timeout: 5))
+        session.tap()
+    }
+
+    private func waitForLabel(
+        _ label: String,
+        element: XCUIElement,
+        timeout: TimeInterval
+    ) {
+        let predicate = NSPredicate(format: "label == %@", label)
+        expectation(for: predicate, evaluatedWith: element)
+        waitForExpectations(timeout: timeout)
+    }
+
+    private func waitForLabelContaining(
+        _ value: String,
+        element: XCUIElement,
+        timeout: TimeInterval
+    ) {
+        let predicate = NSPredicate(
+            format: "label CONTAINS[c] %@",
+            value
+        )
+        expectation(for: predicate, evaluatedWith: element)
+        waitForExpectations(timeout: timeout)
+    }
+
+    private func waitForLabelChange(
+        from label: String,
+        element: XCUIElement,
+        timeout: TimeInterval
+    ) {
+        let predicate = NSPredicate(format: "label != %@", label)
+        expectation(for: predicate, evaluatedWith: element)
+        waitForExpectations(timeout: timeout)
+    }
+
+    private func waitForDynamicLabel(
+        _ identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        condition: (String) -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latestLabel = ""
+        repeat {
+            latestLabel = app.staticTexts[identifier].label
+            if condition(latestLabel) {
+                return
+            }
+            RunLoop.current.run(
+                until: Date().addingTimeInterval(0.05)
+            )
+        } while Date() < deadline
+
+        XCTFail(
+            "Timed out waiting for \(identifier); "
+                + "latest label was \(latestLabel)"
+        )
+    }
+
+    private func holdForRecording() {
+        RunLoop.current.run(
+            until: Date().addingTimeInterval(1)
+        )
+    }
+
+    private func attachScreenshot(named name: String) {
+        let screenshot = XCTAttachment(
+            screenshot: XCUIScreen.main.screenshot()
+        )
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+}

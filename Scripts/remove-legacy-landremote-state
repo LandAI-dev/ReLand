@@ -1,0 +1,133 @@
+#!/bin/sh
+set -eu
+
+MODE=
+INCLUDE_ATTACHED=0
+for argument in "$@"; do
+  case "$argument" in
+    --execute)
+      MODE=--execute
+      ;;
+    --include-attached)
+      INCLUDE_ATTACHED=1
+      ;;
+    *)
+      echo "Usage: $0 [--execute] [--include-attached]" >&2
+      exit 2
+      ;;
+  esac
+done
+LEGACY_HOST_APP=/Applications/LandRemoteHost.app
+LEGACY_SUPPORT="$HOME/Library/Application Support/LandRemote"
+LEGACY_HOST_DOMAIN=com.landai.landremote.host
+LEGACY_CLIENT_DOMAIN=com.landai.landremote
+LEGACY_HOST_KEYCHAIN=com.landai.landremote.host-device-credentials
+LEGACY_CLIENT_KEYCHAIN=com.landai.landremote.device-credentials
+
+remove_path() {
+  path=$1
+  expected=$2
+  if [ "$path" != "$expected" ]; then
+    echo "Refusing unexpected cleanup path: $path" >&2
+    exit 1
+  fi
+  [ -e "$path" ] || return 0
+  echo "Remove: $path"
+  if [ "$MODE" = "--execute" ]; then
+    rm -rf "$path"
+  fi
+}
+
+delete_defaults() {
+  domain=$1
+  if defaults read "$domain" >/dev/null 2>&1; then
+    echo "Delete defaults domain: $domain"
+    if [ "$MODE" = "--execute" ]; then
+      defaults delete "$domain"
+    fi
+  fi
+}
+
+delete_keychain_service() {
+  service=$1
+  if security find-generic-password -s "$service" >/dev/null 2>&1; then
+    echo "Delete Keychain entries for service: $service"
+    if [ "$MODE" = "--execute" ]; then
+      while security delete-generic-password -s "$service" >/dev/null 2>&1; do
+        :
+      done
+    fi
+  fi
+}
+
+if [ "$MODE" != "--execute" ]; then
+  echo "Dry run. Re-run with --execute to remove only the listed legacy state."
+fi
+
+if [ -d "$LEGACY_HOST_APP" ]; then
+  echo "Quit legacy host: com.landai.landremote.host"
+  if [ "$MODE" = "--execute" ]; then
+    osascript \
+      -e 'tell application id "com.landai.landremote.host" to quit' \
+      >/dev/null 2>&1 || true
+    sleep 1
+    if pgrep -x LandRemoteHost >/dev/null 2>&1; then
+      echo "Legacy host is still running. Quit it manually and retry." >&2
+      exit 1
+    fi
+  fi
+fi
+
+remove_path "$LEGACY_HOST_APP" "/Applications/LandRemoteHost.app"
+remove_path \
+  "$LEGACY_SUPPORT" \
+  "$HOME/Library/Application Support/LandRemote"
+
+delete_defaults "$LEGACY_HOST_DOMAIN"
+delete_defaults "$LEGACY_CLIENT_DOMAIN"
+delete_keychain_service "$LEGACY_HOST_KEYCHAIN"
+delete_keychain_service "$LEGACY_CLIENT_KEYCHAIN"
+
+if command -v tmux >/dev/null 2>&1; then
+  tmux list-sessions \
+    -F '#{session_name}	#{session_attached}' 2>/dev/null |
+    while IFS='	' read -r session attached; do
+      case "$session" in
+        lr-*)
+          if
+            [ "${attached:-0}" -gt 0 ] &&
+            [ "$INCLUDE_ATTACHED" -ne 1 ]
+          then
+            echo "Preserve attached legacy tmux session: $session"
+            continue
+          fi
+          echo "Kill legacy tmux session: $session"
+          if [ "$MODE" = "--execute" ]; then
+            tmux kill-session -t "$session"
+          fi
+          ;;
+      esac
+    done
+fi
+
+if xcrun simctl list devices booted 2>/dev/null |
+  grep -q '(Booted)'
+then
+  echo "Uninstall legacy iOS app from booted simulators: $LEGACY_CLIENT_DOMAIN"
+  if [ "$MODE" = "--execute" ]; then
+    xcrun simctl uninstall booted "$LEGACY_CLIENT_DOMAIN" 2>/dev/null || true
+  fi
+fi
+
+if [ -n "${RELAND_LEGACY_CORE_DEVICE_ID:-}" ]; then
+  echo "Uninstall legacy iOS app from physical device: $RELAND_LEGACY_CORE_DEVICE_ID"
+  if [ "$MODE" = "--execute" ]; then
+    xcrun devicectl device uninstall app \
+      --device "$RELAND_LEGACY_CORE_DEVICE_ID" \
+      "$LEGACY_CLIENT_DOMAIN"
+  fi
+fi
+
+if [ "$MODE" = "--execute" ]; then
+  echo "Legacy LandRemote development state removed."
+fi

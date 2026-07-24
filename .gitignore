@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+ReLand.xcodeproj/
+TestResults/
+Config/Local.xcconfig

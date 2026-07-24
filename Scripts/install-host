@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+DERIVED_DATA=${RELAND_MAC_DERIVED_DATA:-/tmp/ReLandMacDerived}
+INSTALL_PATH=/Applications/ReLandHost.app
+
+cd "$ROOT"
+xcodegen generate
+xcodebuild \
+  -project ReLand.xcodeproj \
+  -scheme ReLandHost \
+  -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$DERIVED_DATA" \
+  build \
+  -quiet
+
+osascript \
+  -e 'tell application id "com.landai.reland.host" to quit' \
+  >/dev/null 2>&1 || true
+attempt=0
+while pgrep -x ReLandHost >/dev/null 2>&1; do
+  if [ "$attempt" -ge 25 ]; then
+    echo "ReLand Host did not quit; close it and retry." >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.2
+done
+
+rm -rf "$INSTALL_PATH"
+ditto \
+  "$DERIVED_DATA/Build/Products/Debug/ReLandHost.app" \
+  "$INSTALL_PATH"
+open -a "$INSTALL_PATH"

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install build tools
+        run: brew install xcodegen tmux
+
+      - name: Run unit and integration tests
+        run: ./Scripts/test-unit
+
+      - name: Run iPhone and iPad simulator E2E
+        run: ./Scripts/test-e2e-simulator
+
+      - name: Scan Release builds
+        run: ./Scripts/check-release-security
+
+      - name: Reject committed local signing configuration
+        run: test ! -e Config/Local.xcconfig
