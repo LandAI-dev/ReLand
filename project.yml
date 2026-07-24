@@ -32,6 +32,8 @@ targets:
       path: Apps/ReLandClient/Resources/Info.plist
       properties:
         CFBundleDisplayName: ReLand
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSBonjourServices:
           - _reland._tcp
         NSCameraUsageDescription: Scan a ReLand pairing code from your Mac.
@@ -77,6 +79,8 @@ targets:
       path: Apps/ReLandHost/Resources/Info.plist
       properties:
         CFBundleDisplayName: ReLand Host
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.utilities
         NSLocalNetworkUsageDescription: Accept secure ReLand connections from your paired devices.
         NSScreenCaptureUsageDescription: Stream your Mac display to your paired ReLand device.
