@@ -17,8 +17,17 @@ The remote action dock keeps Apps, Keyboard, Terminal, Files, and Disconnect
 visible. Less-frequent pointer modes, right click, scrolling, zoom reset, and
 the gesture guide live under **More**.
 
-> **Status:** pre-release. The project is under active security, UX, and
+> **Status:** public beta. ReLand remains under active security, UX, and
 > distribution hardening.
+
+## Install the public beta
+
+- **iPhone and iPad:** [Join ReLand 1.0 on TestFlight][testflight-beta].
+- **Mac:** [Download the notarized ReLand Host 1.0 Beta 1][host-beta].
+
+Install both apps, grant ReLand Host the requested Screen Recording and
+Accessibility permissions, then pair the phone or tablet using the one-time
+QR code.
 
 ## Components
 
@@ -130,3 +139,6 @@ issues, tests, or pull requests.
 ReLand is licensed under the [Apache License 2.0](LICENSE). Third-party
 components retain their own licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+[testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
