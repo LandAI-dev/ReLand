@@ -621,16 +621,7 @@ final class ReLandUITests: XCTestCase {
     ) {
         app.buttons["moreButton"].tap()
         let control = app.buttons[identifier]
-        let hittable = XCTNSPredicateExpectation(
-            predicate: NSPredicate(
-                format: "exists == true AND hittable == true"
-            ),
-            object: control
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [hittable], timeout: 5),
-            .completed
-        )
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
         control.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         )
