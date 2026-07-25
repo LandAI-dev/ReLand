@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CHECKER="$ROOT/Scripts/check-workflow-security"
+PATH_CHECKER="$ROOT/Scripts/list-protected-policy-changes"
 FIXTURES=$(mktemp -d)
 
 cleanup() {
@@ -187,5 +188,40 @@ expect_fail \
   "secret reference" \
   "$secret_reference" \
   "references a repository or environment secret"
+
+protected_paths=$(
+  printf '%s\n' \
+    "Apps/ReLandClient/App/ReLandApp.swift" \
+    ".github/workflows/ci.yml" \
+    "Packages/ReLandCore/Package@swift-6.swift" \
+    "Packages/ReLandCore/Package.resolved" \
+    "Packages/ReLandCore/.swiftpm/configuration/registries.json" \
+    "ReLand.xcworkspace/xcshareddata/swiftpm/Package.resolved" |
+    "$PATH_CHECKER"
+)
+
+for expected in \
+  ".github/workflows/ci.yml" \
+  "Packages/ReLandCore/Package@swift-6.swift" \
+  "Packages/ReLandCore/Package.resolved" \
+  "Packages/ReLandCore/.swiftpm/configuration/registries.json" \
+  "ReLand.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+do
+  case "$protected_paths" in
+    *"$expected"*)
+      ;;
+    *)
+      echo "Protected policy path was not detected: $expected" >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$protected_paths" in
+  *"Apps/ReLandClient/App/ReLandApp.swift"*)
+    echo "Normal application source was incorrectly policy-protected." >&2
+    exit 1
+    ;;
+esac
 
 echo "Workflow security policy tests passed."
