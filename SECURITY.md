@@ -20,6 +20,37 @@ Include:
 During pre-release development, only the latest `main` revision is supported.
 Published beta support will be documented in release notes.
 
+## Repository safeguards
+
+- `main` is protected for administrators and contributors.
+- Merges require the GitHub Actions `verify` check from the GitHub Actions app.
+- Force pushes and branch deletion are disabled.
+- Mainline commits must be signed; GitHub squash merges produce verified
+  commits.
+- External pull-request workflows require maintainer approval.
+- Workflow tokens are read-only, cannot approve pull requests, and checkout
+  credentials are not persisted.
+- Actions are limited to GitHub-owned actions pinned by commit SHA.
+- CodeQL scans Swift and Actions, and secret scanning with push protection is
+  enabled.
+- Dependabot security updates and private vulnerability reporting are enabled.
+- `CODEOWNERS` requests the maintainer on application, package, build, workflow,
+  privacy, and security changes.
+
+No external contribution is merged automatically. A contributor cannot push to
+`main` or publish a ReLand release without maintainer access.
+
+ReLand currently has one maintainer account, so GitHub cannot enforce an
+independent human approval without also blocking that maintainer's own pull
+requests. Before granting another account write access, move the repository to
+an organization that enforces two-factor authentication, add at least two
+trusted maintainers, and require one code-owner approval plus approval of the
+latest push.
+
+Maintainer accounts should use a passkey or hardware security key in addition
+to two-factor authentication. Repository protections cannot compensate for a
+compromised sole-owner account.
+
 ## Security boundaries
 
 - Pairing is explicit, local, one-time, and QR-based.

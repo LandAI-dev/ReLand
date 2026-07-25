@@ -40,6 +40,19 @@ Keep dependencies directed from apps to packages and from `ReLandHostCore` to
 Do not add broad catches, silent fallbacks, unsafe force-casts, or destructive
 cleanup that can cross an app-owned boundary.
 
+## Review and merge
+
+- Submit changes through a pull request; contributors cannot push to `main`.
+- External workflow runs require maintainer approval.
+- Resolve every review conversation and keep the required `verify` check green.
+- Security-sensitive areas listed in `.github/CODEOWNERS` request maintainer
+  review automatically.
+- ReLand uses squash-only merges so `main` receives one verified signed commit.
+- Never ask a maintainer to bypass a failed or missing required check.
+
+When a second trusted maintainer is added, the repository will require one
+independent code-owner approval and approval of the latest push.
+
 ## Protocol changes
 
 Before adding a wire message:
