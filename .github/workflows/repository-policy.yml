@@ -24,7 +24,23 @@ jobs:
           path: candidate
           persist-credentials: false
 
+      - name: Determine whether this workflow source is trusted
+        id: policy-source
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          if git -C candidate merge-base \
+            --is-ancestor "$WORKFLOW_SHA" "$BASE_SHA"
+          then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+            echo "The ruleset-pinned base-branch workflow performs enforcement."
+          fi
+
       - name: Check out trusted policy
+        if: steps.policy-source.outputs.trusted == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.workflow_sha }}
@@ -32,9 +48,11 @@ jobs:
           persist-credentials: false
 
       - name: Validate workflow permissions and actions
+        if: steps.policy-source.outputs.trusted == 'true'
         run: trusted-policy/Scripts/check-workflow-security candidate
 
       - name: Require an explicit maintainer bypass for policy changes
+        if: steps.policy-source.outputs.trusted == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
