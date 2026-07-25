@@ -29,11 +29,14 @@ Published beta support will be documented in release notes.
   commits.
 - External pull-request workflows require maintainer approval.
 - Repository workflow defaults are read-only and cannot approve pull requests.
-- A ruleset-pinned `Repository Policy` workflow is sourced from trusted `main`,
-  not from the pull request. It rejects write permissions, secrets,
-  `pull_request_target`, unpinned/non-GitHub actions, persisted checkout
-  credentials, and unreviewed changes to policy or supply-chain files.
+- The required `Repository Policy` check loads its scanners from the pull
+  request base. It rejects write permissions, secrets, `pull_request_target`,
+  unpinned/non-GitHub actions, persisted checkout credentials, and changes to
+  policy or supply-chain files.
 - Actions are limited to GitHub-owned actions pinned by commit SHA.
+- A branch ruleset requires one code-owner approval, dismisses approvals after
+  new pushes, requires approval of the latest push, and blocks CodeQL errors,
+  warnings, and medium-or-higher security alerts.
 - CodeQL scans Swift and Actions, and secret scanning with push protection is
   enabled.
 - Dependabot security updates and private vulnerability reporting are enabled.
@@ -47,11 +50,11 @@ No external contribution is merged automatically. A contributor cannot push to
 
 ReLand currently has one maintainer account, so GitHub cannot enforce an
 independent human approval without also blocking that maintainer's own pull
-requests. Sensitive policy changes instead require an explicit, audited
-maintainer ruleset bypass. Before granting another account write access, move
-the repository to an organization that enforces two-factor authentication, add
-at least two trusted maintainers, and require one code-owner approval plus
-approval of the latest push.
+requests. External contributions require that maintainer's explicit approval;
+owner-authored changes use an audited ruleset bypass. Before granting another
+account write access, move the repository to an organization that enforces
+two-factor authentication and add at least two trusted maintainers so the
+bypass can be removed.
 
 Maintainer accounts should use a passkey or hardware security key in addition
 to two-factor authentication. Repository protections cannot compensate for a
