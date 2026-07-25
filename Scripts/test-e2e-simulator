@@ -51,41 +51,53 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   -quiet
 
-HOST_LOG=/tmp/ReLandE2EHost.log
-: > "$HOST_LOG"
-RELAND_E2E_PORT="$PORT" \
-  "$DERIVED_HOST/Build/Products/Debug/ReLandE2EHost" \
-  > "$HOST_LOG" 2>&1 &
-HOST_PID=$!
+HOST_PID=
+HOST_LOG=
 
-cleanup() {
-  if kill -0 "$HOST_PID" 2>/dev/null; then
+stop_host() {
+  if [ -n "$HOST_PID" ] && kill -0 "$HOST_PID" 2>/dev/null; then
     kill "$HOST_PID"
     wait "$HOST_PID" 2>/dev/null || true
   fi
+  HOST_PID=
+}
+
+cleanup() {
+  stop_host
 }
 trap cleanup EXIT INT TERM
 
-ready=0
-attempt=0
-while [ "$attempt" -lt 50 ]; do
-  if grep -q "RELAND_E2E_READY:$PORT" "$HOST_LOG"; then
-    ready=1
-    break
-  fi
-  if ! kill -0 "$HOST_PID" 2>/dev/null; then
+start_host() {
+  result_name=$1
+  HOST_LOG="/tmp/$result_name-host.log"
+  : > "$HOST_LOG"
+  RELAND_E2E_PORT="$PORT" \
+    "$DERIVED_HOST/Build/Products/Debug/ReLandE2EHost" \
+    > "$HOST_LOG" 2>&1 &
+  HOST_PID=$!
+
+  ready=0
+  attempt=0
+  while [ "$attempt" -lt 50 ]; do
+    if grep -q "RELAND_E2E_READY:$PORT" "$HOST_LOG"; then
+      ready=1
+      break
+    fi
+    if ! kill -0 "$HOST_PID" 2>/dev/null; then
+      cat "$HOST_LOG" >&2
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.2
+  done
+
+  if [ "$ready" -ne 1 ]; then
     cat "$HOST_LOG" >&2
+    stop_host
+    echo "ReLand E2E host did not become ready." >&2
     exit 1
   fi
-  attempt=$((attempt + 1))
-  sleep 0.2
-done
-
-if [ "$ready" -ne 1 ]; then
-  cat "$HOST_LOG" >&2
-  echo "ReLand E2E host did not become ready." >&2
-  exit 1
-fi
+}
 
 run_test() {
   udid=$1
@@ -98,6 +110,8 @@ run_test() {
     com.landai.reland 2>/dev/null || true
   rm -rf "$result_path"
 
+  start_host "$result_name"
+  set +e
   xcodebuild \
     -project ReLand.xcodeproj \
     -scheme ReLand \
@@ -114,6 +128,17 @@ run_test() {
     -only-testing:ReLandUITests/ReLandUITests/testSelectAppWindowAndUseDirectTouch \
     CODE_SIGNING_ALLOWED=NO \
     -quiet
+  status=$?
+  set -e
+  stop_host
+
+  if [ "$status" -ne 0 ]; then
+    xcrun xcresulttool get test-results summary \
+      --path "$result_path" >&2 || true
+    xcrun xcresulttool get test-results tests \
+      --path "$result_path" >&2 || true
+    return "$status"
+  fi
 }
 
 run_test "$IPHONE_UDID" "ReLandIPhoneE2E"

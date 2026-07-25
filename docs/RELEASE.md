@@ -56,3 +56,13 @@ Do not publish until the ReLand/security/legal baseline is complete. Squash
 local checkpoint history into a clean initial public history, then enable
 protected `main`, required CI, secret scanning, dependency alerts, issue/PR
 templates, and private vulnerability reporting.
+
+Release tags are owner-controlled by repository rules. GitHub release
+immutability is enabled: once a release is published, its assets and associated
+tag cannot be replaced or moved. Keep a release in draft until every asset,
+signature, checksum, and note is final.
+
+Repository workflows cannot request secrets or write permissions. Future
+automated publishing must be introduced as a separately reviewed policy change
+with a protected GitHub environment, narrowly scoped credentials, and an
+updated trusted workflow ruleset.

@@ -5,4 +5,4 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT/Packages/ReLandCore"
 
 swift test
-
+"$ROOT/Tests/WorkflowSecurityPolicyTests.sh"

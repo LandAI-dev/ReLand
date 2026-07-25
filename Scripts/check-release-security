@@ -6,6 +6,7 @@ IOS_DERIVED=${RELAND_RELEASE_IOS_DERIVED_DATA:-/tmp/ReLandReleaseSecurityIOS}
 MAC_DERIVED=${RELAND_RELEASE_MAC_DERIVED_DATA:-/tmp/ReLandReleaseSecurityMac}
 
 cd "$ROOT"
+"$ROOT/Scripts/check-workflow-security" "$ROOT"
 xcodegen generate
 
 xcodebuild \
@@ -30,6 +31,8 @@ xcodebuild \
 
 IOS_BINARY="$IOS_DERIVED/Build/Products/Release-iphonesimulator/ReLand.app/ReLand"
 MAC_BINARY="$MAC_DERIVED/Build/Products/Release/ReLandHost.app/Contents/MacOS/ReLandHost"
+IOS_APP="$IOS_DERIVED/Build/Products/Release-iphonesimulator/ReLand.app"
+MAC_APP="$MAC_DERIVED/Build/Products/Release/ReLandHost.app"
 
 for binary in "$IOS_BINARY" "$MAC_BINARY"; do
   if strings "$binary" |
@@ -54,6 +57,31 @@ if grep -Eq \
   Apps/ReLandHost/Resources/ReLandHost.entitlements
 then
   echo "Release host entitlements contain a forbidden capability." >&2
+  exit 1
+fi
+
+assert_app_icon() {
+  app=$1
+  label=$2
+  assets=$app/Assets.car
+
+  if [ ! -f "$assets" ]; then
+    echo "$label is missing its compiled asset catalog." >&2
+    exit 1
+  fi
+  if ! xcrun assetutil --info "$assets" |
+    grep -q '"Name" : "AppIcon"'
+  then
+    echo "$label is missing its compiled AppIcon." >&2
+    exit 1
+  fi
+}
+
+assert_app_icon "$IOS_APP" "Release client"
+assert_app_icon "$MAC_APP/Contents/Resources" "Release host"
+
+if [ ! -f "$IOS_APP/PrivacyInfo.xcprivacy" ]; then
+  echo "Release client is missing PrivacyInfo.xcprivacy." >&2
   exit 1
 fi
 

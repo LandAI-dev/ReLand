@@ -40,6 +40,28 @@ Keep dependencies directed from apps to packages and from `ReLandHostCore` to
 Do not add broad catches, silent fallbacks, unsafe force-casts, or destructive
 cleanup that can cross an app-owned boundary.
 
+## Review and merge
+
+- Submit changes through a pull request; contributors cannot push to `main`.
+- External workflow runs require maintainer approval.
+- Resolve every review conversation and keep the required `verify` check green.
+- Security-sensitive areas listed in `.github/CODEOWNERS` request maintainer
+  review automatically.
+- The required `Repository Policy` workflow loads scanners from the base branch
+  and rejects pull-request changes to workflows, scripts, build/signing
+  configuration, vendored dependencies, all SwiftPM manifests and lockfiles,
+  privacy manifests, and security policies.
+- Workflows may not request write tokens, secrets, OIDC, persisted checkout
+  credentials, `pull_request_target`, third-party actions, or unpinned actions.
+- External changes require one code-owner approval and re-approval after each
+  new push. Owner-authored changes use the audited ruleset bypass while ReLand
+  has only one maintainer.
+- ReLand uses squash-only merges so `main` receives one verified signed commit.
+- Never ask a maintainer to bypass a failed or missing required check.
+
+When a second trusted maintainer is added, the repository will require one
+independent code-owner approval and approval of the latest push.
+
 ## Protocol changes
 
 Before adding a wire message:

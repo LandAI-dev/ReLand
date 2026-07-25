@@ -1,0 +1,73 @@
+name: Repository Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Determine whether the base contains trusted policy
+        id: policy-source
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git -C candidate cat-file -e \
+            "$BASE_SHA:.github/workflows/repository-policy.yml"
+          then
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapping repository policy from this pull request."
+          fi
+
+      - name: Check out trusted policy
+        if: steps.policy-source.outputs.bootstrap == 'false'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-policy
+          persist-credentials: false
+
+      - name: Validate bootstrap workflow permissions and actions
+        if: steps.policy-source.outputs.bootstrap == 'true'
+        run: candidate/Scripts/check-workflow-security candidate
+
+      - name: Validate workflow permissions and actions from trusted base
+        if: steps.policy-source.outputs.bootstrap == 'false'
+        run: trusted-policy/Scripts/check-workflow-security candidate
+
+      - name: Require an explicit maintainer bypass for policy changes
+        if: steps.policy-source.outputs.bootstrap == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          protected_changes=$(
+            git -C candidate diff --name-only "$BASE_SHA" "$HEAD_SHA" |
+              trusted-policy/Scripts/list-protected-policy-changes
+          )
+          if [ -n "$protected_changes" ]; then
+            printf '%s\n' \
+              "This pull request changes protected policy or supply-chain files:" \
+              "$protected_changes" \
+              "A maintainer must use the audited repository-ruleset bypass."
+            exit 1
+          fi

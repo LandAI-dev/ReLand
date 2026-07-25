@@ -622,7 +622,10 @@ final class ReLandUITests: XCTestCase {
         app.buttons["moreButton"].tap()
         let control = app.buttons[identifier]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
-        control.tap()
+        control.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        .tap()
     }
 
     private func waitForTerminalList(in app: XCUIApplication) {
