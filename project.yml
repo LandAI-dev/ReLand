@@ -24,10 +24,7 @@ targets:
     sources:
       - path: Apps/ReLandClient
         excludes:
-          - Resources
-    resources:
-      - path: Apps/ReLandClient/Resources/Assets.xcassets
-      - path: Apps/ReLandClient/Resources/PrivacyInfo.xcprivacy
+          - Resources/Info.plist
     info:
       path: Apps/ReLandClient/Resources/Info.plist
       properties:
@@ -72,9 +69,8 @@ targets:
     sources:
       - path: Apps/ReLandHost
         excludes:
-          - Resources
-    resources:
-      - path: Apps/ReLandHost/Resources/Assets.xcassets
+          - Resources/Info.plist
+          - Resources/ReLandHost.entitlements
     info:
       path: Apps/ReLandHost/Resources/Info.plist
       properties:
