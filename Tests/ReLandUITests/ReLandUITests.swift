@@ -621,8 +621,20 @@ final class ReLandUITests: XCTestCase {
     ) {
         app.buttons["moreButton"].tap()
         let control = app.buttons[identifier]
-        XCTAssertTrue(control.waitForExistence(timeout: 5))
-        control.tap()
+        let hittable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "exists == true AND hittable == true"
+            ),
+            object: control
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [hittable], timeout: 5),
+            .completed
+        )
+        control.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        .tap()
     }
 
     private func waitForTerminalList(in app: XCUIApplication) {
