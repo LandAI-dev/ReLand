@@ -620,8 +620,11 @@ final class ReLandUITests: XCTestCase {
         in app: XCUIApplication
     ) {
         app.buttons["moreButton"].tap()
-        let control = app.buttons[identifier]
+        let control = app.buttons.matching(
+            identifier: identifier
+        ).firstMatch
         XCTAssertTrue(control.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 0.35)
         control.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         )
