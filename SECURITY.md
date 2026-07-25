@@ -17,10 +17,8 @@ Include:
 
 ## Supported versions
 
-During the public beta, only the latest TestFlight build and latest companion
-ReLand Host prerelease are supported. Source builds are supported only from the
-latest `main` revision. See [the release guide](docs/RELEASE.md) for the active
-beta links.
+During pre-release development, only the latest `main` revision is supported.
+Published beta support will be documented in release notes.
 
 ## Repository safeguards
 
