@@ -28,12 +28,17 @@ Published beta support will be documented in release notes.
 - Mainline commits must be signed; GitHub squash merges produce verified
   commits.
 - External pull-request workflows require maintainer approval.
-- Workflow tokens are read-only, cannot approve pull requests, and checkout
-  credentials are not persisted.
+- Repository workflow defaults are read-only and cannot approve pull requests.
+- A ruleset-pinned `Repository Policy` workflow is sourced from trusted `main`,
+  not from the pull request. It rejects write permissions, secrets,
+  `pull_request_target`, unpinned/non-GitHub actions, persisted checkout
+  credentials, and unreviewed changes to policy or supply-chain files.
 - Actions are limited to GitHub-owned actions pinned by commit SHA.
 - CodeQL scans Swift and Actions, and secret scanning with push protection is
   enabled.
 - Dependabot security updates and private vulnerability reporting are enabled.
+- All tags are owner-controlled, and published releases and release tags are
+  immutable.
 - `CODEOWNERS` requests the maintainer on application, package, build, workflow,
   privacy, and security changes.
 
@@ -42,10 +47,11 @@ No external contribution is merged automatically. A contributor cannot push to
 
 ReLand currently has one maintainer account, so GitHub cannot enforce an
 independent human approval without also blocking that maintainer's own pull
-requests. Before granting another account write access, move the repository to
-an organization that enforces two-factor authentication, add at least two
-trusted maintainers, and require one code-owner approval plus approval of the
-latest push.
+requests. Sensitive policy changes instead require an explicit, audited
+maintainer ruleset bypass. Before granting another account write access, move
+the repository to an organization that enforces two-factor authentication, add
+at least two trusted maintainers, and require one code-owner approval plus
+approval of the latest push.
 
 Maintainer accounts should use a passkey or hardware security key in addition
 to two-factor authentication. Repository protections cannot compensate for a

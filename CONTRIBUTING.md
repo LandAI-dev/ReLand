@@ -47,6 +47,12 @@ cleanup that can cross an app-owned boundary.
 - Resolve every review conversation and keep the required `verify` check green.
 - Security-sensitive areas listed in `.github/CODEOWNERS` request maintainer
   review automatically.
+- The trusted `Repository Policy` workflow rejects pull-request changes to
+  workflows, scripts, build/signing configuration, vendored dependencies,
+  package manifests, privacy manifests, and security policies unless the
+  maintainer uses the audited ruleset bypass.
+- Workflows may not request write tokens, secrets, OIDC, persisted checkout
+  credentials, `pull_request_target`, third-party actions, or unpinned actions.
 - ReLand uses squash-only merges so `main` receives one verified signed commit.
 - Never ask a maintainer to bypass a failed or missing required check.
 
