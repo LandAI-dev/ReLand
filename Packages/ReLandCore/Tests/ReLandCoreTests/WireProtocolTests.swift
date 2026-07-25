@@ -209,7 +209,8 @@ struct WireProtocolTests {
     func structuredRemoteErrorRoundTrips() throws {
         let error = RemoteErrorMessage(
             code: .authenticationFailed,
-            message: "Authentication failed"
+            message: "Authentication failed",
+            isRecoverable: true
         )
 
         let decoded = try WireJSON.decode(
@@ -218,6 +219,25 @@ struct WireProtocolTests {
         )
 
         #expect(decoded == error)
+    }
+
+    @Test
+    func legacyRemoteErrorDefaultsToNonRecoverable() throws {
+        let legacyPayload = Data(
+            """
+            {
+              "code": "authenticationFailed",
+              "message": "Authentication failed"
+            }
+            """.utf8
+        )
+
+        let decoded = try WireJSON.decode(
+            RemoteErrorMessage.self,
+            from: legacyPayload
+        )
+
+        #expect(decoded.isRecoverable == false)
     }
 
     @Test

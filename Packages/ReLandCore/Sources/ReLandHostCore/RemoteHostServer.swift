@@ -536,10 +536,14 @@ public final class RemoteHostServer: @unchecked Sendable {
                 throw HostServerError.authenticationRequired
             }
         } catch {
-            let shouldCancel =
-                !packet.kind.isRecoverableServiceMessage
-            send(error: error, to: context) {
-                if shouldCancel {
+            let isRecoverable =
+                packet.kind.isRecoverableServiceMessage
+            send(
+                error: error,
+                isRecoverable: isRecoverable,
+                to: context
+            ) {
+                if !isRecoverable {
                     context.connection.cancel()
                 }
             }
@@ -766,6 +770,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                     case let .failure(error):
                         self.send(
                             error: error,
+                            isRecoverable: true,
                             to: context
                         )
                     }
@@ -804,6 +809,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                     case let .failure(error):
                         self.send(
                             error: error,
+                            isRecoverable: true,
                             to: context
                         )
                     }
@@ -966,7 +972,11 @@ public final class RemoteHostServer: @unchecked Sendable {
             guard case .active = context.authenticationState else {
                 continue
             }
-            send(error: error, to: context)
+            send(
+                error: error,
+                isRecoverable: true,
+                to: context
+            )
         }
     }
 
@@ -988,6 +998,7 @@ public final class RemoteHostServer: @unchecked Sendable {
 
     private func send(
         error: Error,
+        isRecoverable: Bool = false,
         to context: ClientContext,
         completion: (@Sendable () -> Void)? = nil
     ) {
@@ -995,6 +1006,7 @@ public final class RemoteHostServer: @unchecked Sendable {
             send(
                 message: hostError.localizedDescription,
                 code: hostError.remoteCode,
+                isRecoverable: isRecoverable,
                 to: context,
                 completion: completion
             )
@@ -1002,6 +1014,7 @@ public final class RemoteHostServer: @unchecked Sendable {
             send(
                 message: error.localizedDescription,
                 code: .internalError,
+                isRecoverable: isRecoverable,
                 to: context,
                 completion: completion
             )
@@ -1011,11 +1024,16 @@ public final class RemoteHostServer: @unchecked Sendable {
     private func send(
         message: String,
         code: RemoteErrorCode,
+        isRecoverable: Bool = false,
         to context: ClientContext,
         completion: (@Sendable () -> Void)? = nil
     ) {
         guard let payload = try? WireJSON.encode(
-            RemoteErrorMessage(code: code, message: message)
+            RemoteErrorMessage(
+                code: code,
+                message: message,
+                isRecoverable: isRecoverable
+            )
         ) else {
             completion?()
             return

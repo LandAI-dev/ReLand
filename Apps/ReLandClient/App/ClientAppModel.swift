@@ -888,6 +888,9 @@ final class ClientAppModel {
         requestsControllerTakeover: Bool = false
     ) {
         reconnectTask?.cancel()
+        let previousSession = session
+        session = nil
+        previousSession?.disconnect()
         manualDisconnect = false
         activeDevice = device
         activeCredential = credential
@@ -944,9 +947,13 @@ final class ClientAppModel {
                     self.isControllerTakeoverConfirmationPresented =
                         true
                 case .sessionTakenOver:
+                    self.reconnectTask?.cancel()
+                    self.reconnectTask = nil
+                    self.manualDisconnect = true
                     self.alertMessage = error.message
                 default:
-                    break
+                    self.pendingTerminalCreationExistingIDs = nil
+                    self.alertMessage = error.message
                 }
             }
         }

@@ -85,6 +85,12 @@ public final class RemoteClientSession: @unchecked Sendable {
             requestsControllerTakeover
     }
 
+    deinit {
+        connectionTimeoutWorkItem?.cancel()
+        heartbeatTimer?.cancel()
+        connection?.cancel()
+    }
+
     public func connect() {
         queue.async { [weak self] in
             guard let self else {
@@ -518,7 +524,9 @@ public final class RemoteClientSession: @unchecked Sendable {
                     from: packet.payload
                 )
                 onRemoteError?(error)
-                transition(to: .failed(error.message))
+                if !error.isRecoverable {
+                    transition(to: .failed(error.message))
+                }
 
             case .authenticate,
                  .pairRequest,
