@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+grep -E \
+  '(^\.github/|^Scripts/|^Config/|^Vendor/|^project\.yml$|^SECURITY\.md$|^PRIVACY\.md$|(^|/)Package(@swift-[^/]+)?\.swift$|(^|/)Package\.resolved$|(^|/)\.swiftpm/|(^|/)[^/]+\.entitlements$|(^|/)PrivacyInfo\.xcprivacy$)' ||
+  true

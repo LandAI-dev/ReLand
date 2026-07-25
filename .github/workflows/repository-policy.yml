@@ -24,44 +24,45 @@ jobs:
           path: candidate
           persist-credentials: false
 
-      - name: Determine whether this workflow source is trusted
+      - name: Determine whether the base contains trusted policy
         id: policy-source
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
-          if git -C candidate merge-base \
-            --is-ancestor "$WORKFLOW_SHA" "$BASE_SHA"
+          if git -C candidate cat-file -e \
+            "$BASE_SHA:.github/workflows/repository-policy.yml"
           then
-            echo "trusted=true" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
           else
-            echo "trusted=false" >> "$GITHUB_OUTPUT"
-            echo "The ruleset-pinned base-branch workflow performs enforcement."
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+            echo "Bootstrapping repository policy from this pull request."
           fi
 
       - name: Check out trusted policy
-        if: steps.policy-source.outputs.trusted == 'true'
+        if: steps.policy-source.outputs.bootstrap == 'false'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-policy
           persist-credentials: false
 
-      - name: Validate workflow permissions and actions
-        if: steps.policy-source.outputs.trusted == 'true'
+      - name: Validate bootstrap workflow permissions and actions
+        if: steps.policy-source.outputs.bootstrap == 'true'
+        run: candidate/Scripts/check-workflow-security candidate
+
+      - name: Validate workflow permissions and actions from trusted base
+        if: steps.policy-source.outputs.bootstrap == 'false'
         run: trusted-policy/Scripts/check-workflow-security candidate
 
       - name: Require an explicit maintainer bypass for policy changes
-        if: steps.policy-source.outputs.trusted == 'true'
+        if: steps.policy-source.outputs.bootstrap == 'false'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           protected_changes=$(
             git -C candidate diff --name-only "$BASE_SHA" "$HEAD_SHA" |
-              grep -E \
-                '^(\.github/|Scripts/|Config/|Vendor/|project\.yml$|SECURITY\.md$|PRIVACY\.md$|Packages/ReLandCore/Package(\.resolved)?\.swift$|Apps/ReLandHost/Resources/ReLandHost\.entitlements$|Apps/ReLandClient/Resources/PrivacyInfo\.xcprivacy$)' ||
-              true
+              trusted-policy/Scripts/list-protected-policy-changes
           )
           if [ -n "$protected_changes" ]; then
             printf '%s\n' \
