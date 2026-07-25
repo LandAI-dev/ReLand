@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Design/ReLandIcon.svg" alt="ReLand portal logo" width="144">
+</p>
+
 # ReLand
 
 ReLand is a private remote workspace for your own Mac. From an iPhone or
@@ -28,6 +32,12 @@ the gesture guide live under **More**.
 Install both apps, grant ReLand Host the requested Screen Recording and
 Accessibility permissions, then pair the phone or tablet using the one-time
 QR code.
+
+## App preview
+
+| Choose a Mac app | Control it in App Mode | Start a terminal or AI CLI |
+|:--:|:--:|:--:|
+| <img src="docs/images/reland-mac-apps.png" alt="ReLand Mac app picker" width="240"> | <img src="docs/images/reland-app-mode.png" alt="ReLand App Mode controls" width="240"> | <img src="docs/images/reland-new-terminal.png" alt="ReLand new terminal setup" width="240"> |
 
 ## Components
 
