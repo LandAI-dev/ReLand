@@ -1,5 +1,17 @@
 # Release process
 
+## Current public beta
+
+- **iPhone and iPad:** ReLand 1.0 (4) is available through
+  [TestFlight][testflight-beta].
+- **Mac companion:** Download the notarized
+  [ReLand Host 1.0 Beta 1][host-beta].
+
+Install both apps, open ReLand Host on the Mac, grant the requested macOS
+permissions, and pair the phone or tablet using the one-time QR code. The
+TestFlight invitation remains subject to Apple's availability and tester
+capacity.
+
 ## Required checks
 
 ```sh
@@ -45,6 +57,8 @@ Connect keys, or notarization credentials.
 3. Complete privacy nutrition and encryption export-compliance questions.
 4. Upload to App Store Connect.
 5. Test internally before requesting external beta review.
+6. After approval, verify the public invitation on a non-admin Apple ID and
+   update the Current public beta links above.
 
 Current required-reason audit: the iOS target uses UserDefaults for ReLand
 preferences and declares `NSPrivacyAccessedAPICategoryUserDefaults` with
@@ -66,3 +80,6 @@ Repository workflows cannot request secrets or write permissions. Future
 automated publishing must be introduced as a separately reviewed policy change
 with a protected GitHub environment, narrowly scoped credentials, and an
 updated trusted workflow ruleset.
+
+[testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
