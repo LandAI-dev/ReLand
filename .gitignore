@@ -8,3 +8,4 @@ xcuserdata/
 ReLand.xcodeproj/
 TestResults/
 Config/Local.xcconfig
+.playwright-mcp/

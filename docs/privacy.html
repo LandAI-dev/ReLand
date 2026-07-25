@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta
+    name="description"
+    content="ReLand privacy policy: no ReLand account, cloud relay, tracking, ads, or developer collection of remote-workspace content."
+  >
+  <link
+    rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f172a'/%3E%3Cpath d='M46 19a20 20 0 1 0-8 31' fill='none' stroke='%2354d8ca' stroke-width='8' stroke-linecap='round'/%3E%3Cpath d='m26 44 13 7-4-14' fill='%23fff'/%3E%3C/svg%3E"
+  >
+  <link
+    rel="canonical"
+    href="https://landai-dev.github.io/ReLand/privacy.html"
+  >
+  <title>ReLand Privacy Policy</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --navy: #0f172a;
+      --navy-deep: #07111f;
+      --slate: #334155;
+      --muted: #526173;
+      --teal: #0f9e9a;
+      --teal-soft: #d9f5f1;
+      --surface: #ffffff;
+      --surface-alt: #f4f8fb;
+      --border: #cbd5e1;
+      --text: #101827;
+      --link: #0369a1;
+      --shadow: 0 18px 50px rgb(15 23 42 / 12%);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      background: var(--surface-alt);
+      color: var(--text);
+    }
+
+    body {
+      margin: 0;
+    }
+
+    a {
+      color: var(--link);
+      text-underline-offset: 0.18em;
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--teal);
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+
+    .hero {
+      background:
+        radial-gradient(circle at 85% 20%, #0f9e9a 0, transparent 32%),
+        linear-gradient(145deg, var(--navy-deep), var(--navy));
+      color: #ffffff;
+      padding: 28px 24px 92px;
+    }
+
+    .nav,
+    .hero-content,
+    main,
+    footer {
+      width: min(100%, 980px);
+      margin-inline: auto;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 2px solid #6ee7db;
+      border-radius: 10px;
+      color: #6ee7db;
+      font-weight: 800;
+    }
+
+    .nav-link {
+      color: #d7f7f3;
+      font-weight: 650;
+    }
+
+    .hero-content {
+      padding-top: 76px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: #8ce9de;
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+    }
+
+    h1 {
+      max-width: 780px;
+      margin: 0;
+      font-size: clamp(2.25rem, 6vw, 4.2rem);
+      letter-spacing: -0.04em;
+    }
+
+    .hero-summary {
+      max-width: 720px;
+      margin: 24px 0 0;
+      color: #dce9f4;
+      font-size: clamp(1.02rem, 2.4vw, 1.25rem);
+    }
+
+    main {
+      margin-top: -52px;
+      padding: 0 24px 72px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .summary-card,
+    .policy {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .summary-card {
+      border-radius: 18px;
+      padding: 22px;
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--navy);
+      font-size: 1.05rem;
+    }
+
+    .summary-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .policy {
+      border-radius: 24px;
+      padding: clamp(26px, 5vw, 56px);
+    }
+
+    .meta {
+      margin: 0 0 38px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    section + section {
+      margin-top: 42px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      color: var(--navy);
+      font-size: clamp(1.4rem, 3vw, 1.9rem);
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      margin: 26px 0 8px;
+      color: var(--slate);
+      font-size: 1.05rem;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+    }
+
+    ul {
+      padding-left: 1.25rem;
+    }
+
+    .callout {
+      margin: 20px 0 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--teal);
+      border-radius: 0 12px 12px 0;
+      background: var(--teal-soft);
+      color: var(--navy);
+    }
+
+    footer {
+      padding: 0 24px 42px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    footer nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        padding-inline: 18px;
+      }
+
+      .hero-content {
+        padding-top: 54px;
+      }
+
+      main {
+        padding-inline: 14px;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .policy {
+        border-radius: 18px;
+      }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --surface: #101b2c;
+        --surface-alt: #07111f;
+        --border: #334155;
+        --text: #f8fafc;
+        --muted: #c5d0dd;
+        --link: #67d8cf;
+        --teal-soft: #123b3c;
+        --shadow: 0 18px 50px rgb(0 0 0 / 28%);
+      }
+
+      .summary-card strong,
+      h2 {
+        color: #f8fafc;
+      }
+
+      h3,
+      .callout {
+        color: #dffaf6;
+      }
+    }
+
+    @media print {
+      .hero {
+        padding-bottom: 32px;
+        background: #ffffff;
+        color: #000000;
+      }
+
+      .brand,
+      .nav-link,
+      .eyebrow,
+      .hero-summary {
+        color: #000000;
+      }
+
+      main {
+        margin-top: 0;
+      }
+
+      .summary-card,
+      .policy {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <nav class="nav" aria-label="Privacy page navigation">
+      <a class="brand" href="https://github.com/LandAI-dev/ReLand">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        ReLand
+      </a>
+      <a class="nav-link" href="#contact">Contact</a>
+    </nav>
+    <div class="hero-content">
+      <p class="eyebrow">Privacy by design</p>
+      <h1>Your Mac content stays between your devices.</h1>
+      <p class="hero-summary">
+        ReLand has no ReLand account, advertising SDK, analytics service,
+        developer-operated cloud relay, or tracking system.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <div class="summary-grid" aria-label="Privacy summary">
+      <article class="summary-card">
+        <strong>No developer collection</strong>
+        <p>Land AI LLC does not receive your remote-workspace content.</p>
+      </article>
+      <article class="summary-card">
+        <strong>No ReLand cloud relay</strong>
+        <p>Connections use your trusted LAN or private Tailscale network.</p>
+      </article>
+      <article class="summary-card">
+        <strong>No tracking or ads</strong>
+        <p>ReLand does not profile users or sell, rent, or share user data.</p>
+      </article>
+    </div>
+
+    <article class="policy">
+      <p class="meta">
+        Effective July 25, 2026 &middot; ReLand 1.0 &middot; Land AI LLC
+      </p>
+
+      <section aria-labelledby="scope">
+        <h2 id="scope">1. Scope</h2>
+        <p>
+          This policy explains how ReLand for iPhone and iPad and ReLand Host
+          for Mac process information. ReLand is an open-source remote workspace
+          that connects devices you control.
+        </p>
+      </section>
+
+      <section aria-labelledby="processed">
+        <h2 id="processed">2. Information ReLand processes</h2>
+        <p>
+          To provide its features, ReLand can process the following information
+          directly between your paired devices:
+        </p>
+        <ul>
+          <li>Mac screen or selected-window frames.</li>
+          <li>Pointer, keyboard, touch, and gesture input.</li>
+          <li>Terminal input, output, and session metadata.</li>
+          <li>Artifact metadata and files you choose to download.</li>
+          <li>
+            File metadata and files from ReLand storage or Mac folders you
+            explicitly approve.
+          </li>
+          <li>
+            Device names, private network addresses, pairing credentials, and
+            connection state.
+          </li>
+        </ul>
+        <p class="callout">
+          Apple defines collection as transmitting data off the device so the
+          developer or a third party can retain or access it. ReLand does not
+          collect the content above because Land AI LLC does not receive it.
+        </p>
+      </section>
+
+      <section aria-labelledby="storage">
+        <h2 id="storage">3. Local storage and retention</h2>
+        <ul>
+          <li>Pairing keys are stored in Apple Keychain.</li>
+          <li>App settings and paired-device preferences remain local.</li>
+          <li>
+            Host sessions are stored under
+            <code>~/Library/Application Support/ReLand</code>.
+          </li>
+          <li>Downloaded previews can be cached locally on iPhone or iPad.</li>
+          <li>
+            Approved Mac folders are represented by macOS security-scoped
+            bookmarks.
+          </li>
+        </ul>
+        <p>
+          ReLand retains local information until you remove a pairing, clear
+          app cache/session storage, delete downloaded content, or uninstall
+          the apps. ReLand Settings includes cleanup controls for app-owned
+          cache and session storage.
+        </p>
+      </section>
+
+      <section aria-labelledby="permissions">
+        <h2 id="permissions">4. Apple permissions</h2>
+        <h3>iPhone and iPad</h3>
+        <ul>
+          <li><strong>Local Network:</strong> connect to ReLand Host.</li>
+          <li><strong>Camera:</strong> scan a one-time pairing QR code.</li>
+        </ul>
+        <h3>Mac</h3>
+        <ul>
+          <li>
+            <strong>Screen Recording:</strong> stream the display or selected
+            app.
+          </li>
+          <li>
+            <strong>Accessibility:</strong> send pointer and keyboard input.
+          </li>
+        </ul>
+        <p>
+          ReLand cannot approve these permissions for you. Permission choices
+          can be changed in Apple system settings.
+        </p>
+      </section>
+
+      <section aria-labelledby="network">
+        <h2 id="network">5. Network services and third parties</h2>
+        <p>
+          ReLand connects over a trusted local network or a private Tailscale
+          network. If you choose Tailscale, Tailscale independently processes
+          network and account information under its own privacy policy. ReLand
+          does not inspect your Tailscale plan or billing information.
+        </p>
+        <p>
+          ReLand is distributed through Apple and GitHub. Apple and GitHub may
+          process download, account, device, or standard web-log information
+          under their own privacy policies. This page is hosted by GitHub
+          Pages and contains no Land AI analytics or advertising scripts.
+        </p>
+      </section>
+
+      <section aria-labelledby="security">
+        <h2 id="security">6. Security safeguards</h2>
+        <ul>
+          <li>Pairing requires physical access and a one-time QR code.</li>
+          <li>Pairing codes expire after ten minutes and are consumed once.</li>
+          <li>Transport uses Apple Network.framework TLS with pre-shared keys.</li>
+          <li>Public destination addresses are rejected.</li>
+          <li>Hidden paths, traversal, and symbolic links are rejected.</li>
+          <li>Mac folder access requires explicit approval.</li>
+        </ul>
+        <p>
+          No system can guarantee absolute security. Keep devices updated,
+          protect access to the unlocked Mac, and never expose ReLand Host
+          directly to the public internet.
+        </p>
+      </section>
+
+      <section aria-labelledby="children">
+        <h2 id="children">7. Children</h2>
+        <p>
+          ReLand is a general-purpose utility and is not directed to children.
+          ReLand does not create user accounts or collect personal information
+          from children or adults.
+        </p>
+      </section>
+
+      <section aria-labelledby="changes">
+        <h2 id="changes">8. Policy changes</h2>
+        <p>
+          Material changes will be posted on this page with a new effective
+          date. App Store privacy disclosures will be updated when ReLand's data
+          practices change.
+        </p>
+      </section>
+
+      <section id="contact" aria-labelledby="contact-heading">
+        <h2 id="contact-heading">9. Contact</h2>
+        <p>
+          For privacy questions, use the
+          <a href="https://github.com/LandAI-dev/ReLand/blob/main/SUPPORT.md">
+            ReLand support page
+          </a>.
+          Report security issues privately through
+          <a href="https://github.com/LandAI-dev/ReLand/security/advisories/new">
+            GitHub private vulnerability reporting
+          </a>.
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer>
+    <nav aria-label="Footer links">
+      <a href="https://github.com/LandAI-dev/ReLand">ReLand source</a>
+      <a href="https://github.com/LandAI-dev/ReLand/blob/main/SECURITY.md">
+        Security
+      </a>
+      <a href="https://github.com/LandAI-dev/ReLand/blob/main/SUPPORT.md">
+        Support
+      </a>
+    </nav>
+    <div>&copy; 2026 Land AI LLC. ReLand is open source.</div>
+  </footer>
+</body>
+</html>
