@@ -1,0 +1,128 @@
+#!/bin/sh
+set -eu
+
+ROOT=${1:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+
+ruby - "$ROOT" <<'RUBY'
+require "yaml"
+
+root = ARGV.fetch(0)
+workflows = Dir.glob(
+  File.join(root, ".github", "workflows", "*.{yml,yaml}")
+).sort
+errors = []
+
+if workflows.empty?
+  warn "No GitHub Actions workflows were found."
+  exit 1
+end
+
+def walk(value, path = [], &block)
+  yield value, path
+  case value
+  when Hash
+    value.each do |key, child|
+      walk(child, path + [key.to_s], &block)
+    end
+  when Array
+    value.each_with_index do |child, index|
+      walk(child, path + [index.to_s], &block)
+    end
+  end
+end
+
+def trigger_names(value)
+  case value
+  when Hash
+    value.keys.map(&:to_s)
+  when Array
+    value.map(&:to_s)
+  when String
+    [value]
+  else
+    []
+  end
+end
+
+def validate_permissions(value, location, errors)
+  case value
+  when nil
+    nil
+  when String
+    unless ["read-all", "none"].include?(value)
+      errors << "#{location} requests #{value.inspect}"
+    end
+  when Hash
+    value.each do |scope, access|
+      next if ["read", "none"].include?(access.to_s)
+
+      errors << "#{location}.#{scope} requests #{access.inspect}"
+    end
+  else
+    errors << "#{location} has an unsupported value"
+  end
+end
+
+workflows.each do |workflow|
+  relative = workflow.delete_prefix("#{root}/")
+  begin
+    document = YAML.safe_load(
+      File.read(workflow),
+      aliases: true
+    ) || {}
+  rescue Psych::Exception => error
+    errors << "#{relative} is not valid YAML: #{error.message}"
+    next
+  end
+
+  triggers = document["on"] || document[true]
+  if trigger_names(triggers).include?("pull_request_target")
+    errors << "#{relative} uses pull_request_target"
+  end
+
+  walk(document) do |value, path|
+    location = "#{relative}:#{path.join(".")}"
+    key = path.last
+
+    validate_permissions(value, location, errors) if key == "permissions"
+
+    if key == "secrets"
+      errors << "#{location} declares or forwards secrets"
+    end
+
+    if value.is_a?(String) && value.match?(/\bsecrets\s*(?:\.|\[)/i)
+      errors << "#{location} references a repository or environment secret"
+    end
+
+    next unless key == "uses"
+
+    action = value.to_s
+    unless action.match?(
+      %r{\A(?:actions|github)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-fA-F]{40}\z}
+    )
+      errors << "#{location} is not a pinned GitHub-owned action: #{action}"
+      next
+    end
+
+    next unless action.start_with?("actions/checkout@")
+
+    step = path[0...-1].reduce(document) do |current, component|
+      current.is_a?(Array) ? current.fetch(component.to_i) : current[component]
+    end
+    persist_credentials =
+      step.is_a?(Hash) &&
+      step.fetch("with", {}).fetch("persist-credentials", nil)
+    unless persist_credentials == false ||
+        persist_credentials.to_s == "false"
+      errors << "#{location} must set persist-credentials: false"
+    end
+  end
+end
+
+unless errors.empty?
+  errors.each { |error| warn "Workflow security error: #{error}" }
+  exit 1
+end
+
+puts "GitHub Actions workflow security checks passed."
+RUBY

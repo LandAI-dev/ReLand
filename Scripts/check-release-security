@@ -6,6 +6,7 @@ IOS_DERIVED=${RELAND_RELEASE_IOS_DERIVED_DATA:-/tmp/ReLandReleaseSecurityIOS}
 MAC_DERIVED=${RELAND_RELEASE_MAC_DERIVED_DATA:-/tmp/ReLandReleaseSecurityMac}
 
 cd "$ROOT"
+"$ROOT/Scripts/check-workflow-security" "$ROOT"
 xcodegen generate
 
 xcodebuild \

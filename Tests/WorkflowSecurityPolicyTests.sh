@@ -29,10 +29,20 @@ expect_pass() {
 expect_fail() {
   name=$1
   directory=$2
-  if "$CHECKER" "$directory"; then
+  expected=$3
+  if output=$("$CHECKER" "$directory" 2>&1); then
     echo "Expected workflow policy to fail: $name" >&2
     exit 1
   fi
+  case "$output" in
+    *"$expected"*)
+      ;;
+    *)
+      echo "Workflow policy failed for the wrong reason: $name" >&2
+      echo "$output" >&2
+      exit 1
+      ;;
+  esac
 }
 
 safe="$FIXTURES/safe"
@@ -65,7 +75,10 @@ jobs:
     steps:
       - run: echo unsafe
 '
-expect_fail "write token permission" "$write_permissions"
+expect_fail \
+  "write token permission" \
+  "$write_permissions" \
+  'permissions.contents requests "write"'
 
 job_permissions="$FIXTURES/job-permissions"
 write_workflow "$job_permissions" '
@@ -81,7 +94,10 @@ jobs:
     steps:
       - run: echo unsafe
 '
-expect_fail "job write token permission" "$job_permissions"
+expect_fail \
+  "job write token permission" \
+  "$job_permissions" \
+  'permissions.id-token requests "write"'
 
 pull_request_target="$FIXTURES/pull-request-target"
 write_workflow "$pull_request_target" '
@@ -96,7 +112,10 @@ jobs:
     steps:
       - run: echo unsafe
 '
-expect_fail "pull_request_target trigger" "$pull_request_target"
+expect_fail \
+  "pull_request_target trigger" \
+  "$pull_request_target" \
+  "uses pull_request_target"
 
 unpinned_action="$FIXTURES/unpinned-action"
 write_workflow "$unpinned_action" '
@@ -112,7 +131,10 @@ jobs:
         with:
           persist-credentials: false
 '
-expect_fail "unpinned action" "$unpinned_action"
+expect_fail \
+  "unpinned action" \
+  "$unpinned_action" \
+  "is not a pinned GitHub-owned action"
 
 external_action="$FIXTURES/external-action"
 write_workflow "$external_action" '
@@ -126,7 +148,10 @@ jobs:
     steps:
       - uses: third-party/example@0123456789012345678901234567890123456789
 '
-expect_fail "third-party action" "$external_action"
+expect_fail \
+  "third-party action" \
+  "$external_action" \
+  "is not a pinned GitHub-owned action"
 
 persisted_credentials="$FIXTURES/persisted-credentials"
 write_workflow "$persisted_credentials" '
@@ -140,7 +165,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 '
-expect_fail "persisted checkout credentials" "$persisted_credentials"
+expect_fail \
+  "persisted checkout credentials" \
+  "$persisted_credentials" \
+  "must set persist-credentials: false"
 
 secret_reference="$FIXTURES/secret-reference"
 write_workflow "$secret_reference" '
@@ -152,8 +180,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -H "Authorization: ${{ secrets.RELEASE_TOKEN }}" example.com
+      - run: |
+          curl -H "Authorization: ${{ secrets.RELEASE_TOKEN }}" example.com
 '
-expect_fail "secret reference" "$secret_reference"
+expect_fail \
+  "secret reference" \
+  "$secret_reference" \
+  "references a repository or environment secret"
 
 echo "Workflow security policy tests passed."

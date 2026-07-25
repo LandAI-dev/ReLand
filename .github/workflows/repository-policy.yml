@@ -1,0 +1,54 @@
+name: Repository Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out trusted policy
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted-policy
+          persist-credentials: false
+
+      - name: Validate workflow permissions and actions
+        run: trusted-policy/Scripts/check-workflow-security candidate
+
+      - name: Require an explicit maintainer bypass for policy changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          protected_changes=$(
+            git -C candidate diff --name-only "$BASE_SHA" "$HEAD_SHA" |
+              grep -E \
+                '^(\.github/|Scripts/|Config/|Vendor/|project\.yml$|SECURITY\.md$|PRIVACY\.md$|Packages/ReLandCore/Package(\.resolved)?\.swift$|Apps/ReLandHost/Resources/ReLandHost\.entitlements$|Apps/ReLandClient/Resources/PrivacyInfo\.xcprivacy$)' ||
+              true
+          )
+          if [ -n "$protected_changes" ]; then
+            printf '%s\n' \
+              "This pull request changes protected policy or supply-chain files:" \
+              "$protected_changes" \
+              "A maintainer must use the audited repository-ruleset bypass."
+            exit 1
+          fi
