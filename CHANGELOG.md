@@ -4,6 +4,11 @@ All notable user-visible changes will be documented here.
 
 ## Unreleased
 
+## 1.0 Beta 1 - 2026-07-25
+
+- Opened the ReLand 1.0 public beta through
+  [TestFlight][testflight-beta], with [ReLand Host 1.0 Beta 1][host-beta]
+  available as the required Mac companion.
 - Renamed the product, applications, modules, storage, and protocol service
   from LandRemote to ReLand.
 - Added ReLand AI (`reland-ai`) with a `landai` developer alias.
@@ -29,3 +34,6 @@ All notable user-visible changes will be documented here.
   that require explicit confirmation.
 - Added client-side private-network enforcement.
 - Removed release access to deterministic E2E credentials.
+
+[testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
