@@ -4,6 +4,29 @@ import XCTest
 @testable import ReLandHostCore
 
 final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
+    func testTerminalCreateReportsWhenSessionIsDisconnected() throws {
+        let credential = try PSKCredential.generate(name: "Phone")
+        let session = try RemoteClientSession(
+            address: "127.0.0.1",
+            port: 45_468,
+            credential: credential
+        )
+        let rejected = expectation(
+            description: "Disconnected create request rejected"
+        )
+
+        session.createTerminalSession(preferredName: "terminal") { result in
+            guard case let .failure(error) = result else {
+                XCTFail("Expected terminal creation to be rejected")
+                return
+            }
+            XCTAssertEqual(error, .notConnected)
+            rejected.fulfill()
+        }
+
+        wait(for: [rejected], timeout: 1)
+    }
+
     func testPairingIssuesDeviceCredentialAndConnects() throws {
         let pairingCredential = try PSKCredential.generate(
             name: "Pairing",
@@ -527,6 +550,7 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
         let sessions = SessionBag()
         let didStart = LockedFlag()
         let didCreateTerminal = LockedFlag()
+        let terminalCreateRequestID = UUID()
 
         server.onStateChange = { state in
             guard case .ready = state, didStart.claim() else {
@@ -541,6 +565,14 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
                 session.onRemoteError = { error in
                     XCTAssertEqual(error.code, .internalError)
                     XCTAssertTrue(error.isRecoverable)
+                    XCTAssertEqual(
+                        error.requestKind,
+                        .terminalCreateRequest
+                    )
+                    XCTAssertEqual(
+                        error.requestID,
+                        terminalCreateRequestID
+                    )
                     terminalError.fulfill()
                 }
                 session.onStateChange = { state in
@@ -551,6 +583,7 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
                         }
                         connected.fulfill()
                         session.createTerminalSession(
+                            requestID: terminalCreateRequestID,
                             preferredName: "failing-terminal"
                         )
                     case .failed:
@@ -619,7 +652,14 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
                 session.onRemoteError = { error in
                     XCTAssertEqual(error.code, .internalError)
                     XCTAssertTrue(error.isRecoverable)
-                    if errorCount.increment() == 1 {
+                    let count = errorCount.increment()
+                    XCTAssertEqual(
+                        error.requestKind,
+                        count == 1
+                            ? .captureTargetListRequest
+                            : .captureTargetSelectRequest
+                    )
+                    if count == 1 {
                         session.selectCaptureTarget(id: "missing-window")
                     }
                     captureErrors.fulfill()
@@ -693,6 +733,7 @@ final class RemoteSessionIntegrationTests: XCTestCase, @unchecked Sendable {
                 session.onRemoteError = { error in
                     XCTAssertEqual(error.code, .internalError)
                     XCTAssertTrue(error.isRecoverable)
+                    XCTAssertNil(error.requestKind)
                     frameError.fulfill()
                 }
                 session.onStateChange = { state in
@@ -808,6 +849,10 @@ private struct FailingTerminalService: RemoteTerminalService {
     }
 
     func openOnMac(sessionID: String) throws {
+        throw FailingTerminalError.creationFailed
+    }
+
+    func renameSession(sessionID: String, name: String) throws {
         throw FailingTerminalError.creationFailed
     }
 

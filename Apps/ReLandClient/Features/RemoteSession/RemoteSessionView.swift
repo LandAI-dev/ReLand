@@ -346,16 +346,14 @@ struct RemoteSessionView: View {
             Text(hostAttentionDetail)
                 .font(.subheadline)
 
-            HStack {
-                Button("Open Mac Screen") {
-                    model.openMacScreenForPermission()
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    hostAttentionActions
                 }
-                .buttonStyle(.borderedProminent)
 
-                Button("Retry") {
-                    model.requestHostStatus()
+                VStack(alignment: .leading, spacing: 8) {
+                    hostAttentionActions
                 }
-                .buttonStyle(.bordered)
             }
         }
         .foregroundStyle(.white)
@@ -380,6 +378,19 @@ struct RemoteSessionView: View {
             return "Screen Recording is required"
         }
         return "Accessibility is required"
+    }
+
+    @ViewBuilder
+    private var hostAttentionActions: some View {
+        Button("Open Mac Screen") {
+            model.openMacScreenForPermission()
+        }
+        .buttonStyle(.borderedProminent)
+
+        Button("Retry") {
+            model.requestHostStatus()
+        }
+        .buttonStyle(.bordered)
     }
 
     private var hostAttentionDetail: String {
@@ -723,12 +734,18 @@ struct RemoteSessionView: View {
         tint: Color,
         isActive: Bool
     ) -> some View {
-        VStack(spacing: 3) {
+        ViewThatFits(in: .horizontal) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
             Image(systemName: systemImage)
                 .font(.body.weight(.semibold))
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
         }
         .foregroundStyle(isActive ? Color.white : tint)
         .frame(maxWidth: .infinity, minHeight: 54)

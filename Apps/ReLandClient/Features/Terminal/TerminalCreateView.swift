@@ -15,6 +15,11 @@ struct TerminalCreateView: View {
     @State private var launchProfileName = ""
     @State private var isSaveProfilePresented = false
     @State private var errorMessage: String?
+    @State private var hasEditedWorkingDirectory = false
+
+    private var isSubmitting: Bool {
+        model.terminalCreationState.isSubmitting
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,43 +30,97 @@ struct TerminalCreateView: View {
                         .autocorrectionDisabled()
                 }
 
-                Section {
-                    if let workingDirectoryName {
-                        LabeledContent("Selected") {
-                            Text(workingDirectoryName)
-                                .accessibilityIdentifier(
-                                    "selectedWorkingDirectory"
+                if isSubmitting {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Creating terminal on the Mac...")
+                                .foregroundStyle(
+                                    ReLandTheme.mutedText
                                 )
                         }
-                        Button("Use ReLand session workspace") {
-                            workingDirectoryPath = nil
-                            self.workingDirectoryName = nil
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(
+                            "terminalCreationProgress"
+                        )
+                    }
+                }
+
+                Section {
+                    if let workingDirectoryName {
+                        Label {
+                            VStack(
+                                alignment: .leading,
+                                spacing: 3
+                            ) {
+                                Text(workingDirectoryName)
+                                    .font(.headline)
+                                    .accessibilityIdentifier(
+                                        "selectedWorkingDirectory"
+                                    )
+                                Text("Remembered for this Mac")
+                                    .font(.caption)
+                                    .foregroundStyle(
+                                        ReLandTheme.mutedText
+                                    )
+                            }
+                        } icon: {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(ReLandTheme.accent)
                         }
                     } else {
-                        Text("ReLand session workspace")
-                            .foregroundStyle(
-                                ReLandTheme.mutedText
-                            )
+                        Label {
+                            VStack(
+                                alignment: .leading,
+                                spacing: 3
+                            ) {
+                                Text("ReLand session workspace")
+                                    .font(.headline)
+                                Text(
+                                    "Private storage for this terminal"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(
+                                    ReLandTheme.mutedText
+                                )
+                            }
+                        } icon: {
+                            Image(systemName: "shippingbox.fill")
+                                .foregroundStyle(
+                                    ReLandTheme.mutedText
+                                )
+                        }
                     }
 
                     Button {
+                        model.requestRemoteFiles(path: "")
                         isWorkingDirectoryPickerPresented = true
                     } label: {
                         Label(
-                            "Choose Project Folder",
-                            systemImage: "folder.badge.plus"
+                            workingDirectoryPath == nil
+                                ? "Choose Project Folder"
+                                : "Change Project Folder",
+                            systemImage: "folder.badge.gearshape"
                         )
                     }
                     .accessibilityIdentifier(
                         "chooseProjectFolderButton"
                     )
+
+                    if workingDirectoryPath != nil {
+                        Button("Use ReLand session workspace") {
+                            workingDirectoryPath = nil
+                            self.workingDirectoryName = nil
+                            hasEditedWorkingDirectory = true
+                        }
+                        .accessibilityIdentifier(
+                            "useSessionWorkspaceButton"
+                        )
+                    }
                 } header: {
                     Text("Working Folder")
                 } footer: {
-                    Text(
-                        "Only ReLand storage and folders approved in "
-                            + "ReLand Host can be selected."
-                    )
+                    Text(workingDirectoryFooter)
                 }
 
                 Section {
@@ -293,11 +352,16 @@ struct TerminalCreateView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isSubmitting)
+                    .accessibilityIdentifier(
+                        "cancelCreateTerminalButton"
+                    )
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         createSession()
                     }
+                    .disabled(isSubmitting)
                     .accessibilityIdentifier(
                         "confirmCreateTerminalButton"
                     )
@@ -305,11 +369,39 @@ struct TerminalCreateView: View {
             }
         }
         .task {
+            model.prepareTerminalCreation()
             loadPreferences()
+            hasEditedWorkingDirectory = false
+            synchronizeWorkingDirectoryPreference()
+            model.requestRemoteFiles(path: "")
+        }
+        .onChange(of: model.terminalCreationState) {
+            _, state in
+            switch state {
+            case .succeeded:
+                dismiss()
+            case let .failed(message):
+                errorMessage = message
+            case .idle, .submitting:
+                break
+            }
         }
         .onChange(of: launchProfile) { _, _ in
             loadPreferences()
         }
+        .task(id: model.hasLoadedRemoteFileRoots) {
+            guard
+                model.hasLoadedRemoteFileRoots,
+                !hasEditedWorkingDirectory
+            else {
+                return
+            }
+            synchronizeWorkingDirectoryPreference()
+        }
+        .onDisappear {
+            model.clearTerminalCreationResult()
+        }
+        .interactiveDismissDisabled(isSubmitting)
         .sheet(
             isPresented:
                 $isWorkingDirectoryPickerPresented
@@ -319,11 +411,12 @@ struct TerminalCreateView: View {
             ) { path, name in
                 workingDirectoryPath = path
                 workingDirectoryName = name
+                hasEditedWorkingDirectory = true
                 isWorkingDirectoryPickerPresented = false
             }
         }
         .alert(
-            "Invalid launch arguments",
+            "Terminal not created",
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { isPresented in
@@ -335,6 +428,7 @@ struct TerminalCreateView: View {
         ) {
             Button("OK", role: .cancel) {
                 errorMessage = nil
+                model.prepareTerminalCreation()
             }
         } message: {
             Text(errorMessage ?? "")
@@ -390,9 +484,9 @@ struct TerminalCreateView: View {
                     : preferredName,
                 launchProfile: launchProfile,
                 launchArguments: arguments,
-                workingDirectoryPath: workingDirectoryPath
+                workingDirectoryPath: workingDirectoryPath,
+                workingDirectoryName: workingDirectoryName
             )
-            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -409,6 +503,18 @@ struct TerminalCreateView: View {
         ) ?? ""
     }
 
+    private func synchronizeWorkingDirectoryPreference() {
+        if let directory =
+            model.preferredTerminalWorkingDirectory()
+        {
+            workingDirectoryPath = directory.path
+            workingDirectoryName = directory.name
+        } else {
+            workingDirectoryPath = nil
+            workingDirectoryName = nil
+        }
+    }
+
     private func savePreferences() {
         let defaults = UserDefaults.standard
         defaults.set(
@@ -419,6 +525,17 @@ struct TerminalCreateView: View {
 
     private func preferenceKey(_ suffix: String) -> String {
         "reland.terminal.\(launchProfile.rawValue).\(suffix)"
+    }
+
+    private var workingDirectoryFooter: String {
+        if workingDirectoryPath != nil {
+            return
+                "This folder will be reused for future terminals on "
+                + "this Mac. ReLand Host keeps its existing approval."
+        }
+        return
+            "Choose an approved project folder before coding with AI. "
+            + "Folder access is approved once in ReLand Host."
     }
 }
 

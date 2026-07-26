@@ -541,6 +541,8 @@ public final class RemoteHostServer: @unchecked Sendable {
             send(
                 error: error,
                 isRecoverable: isRecoverable,
+                requestKind: packet.kind,
+                requestID: requestID(for: packet),
                 to: context
             ) {
                 if !isRecoverable {
@@ -630,13 +632,17 @@ public final class RemoteHostServer: @unchecked Sendable {
             } else {
                 workingDirectory = nil
             }
-            _ = try requiredTerminalService().createSession(
+            let created = try requiredTerminalService().createSession(
                 preferredName: request.preferredName,
                 launchProfile: request.launchProfile,
                 launchArguments: request.launchArguments,
                 workingDirectory: workingDirectory
             )
-            try sendTerminalSessions(to: context)
+            try sendTerminalSessions(
+                to: context,
+                createdSessionID: created.id,
+                createdRequestID: request.requestID
+            )
         case .terminalAttachRequest:
             let request = try WireJSON.decode(
                 TerminalAttachRequest.self,
@@ -667,6 +673,25 @@ public final class RemoteHostServer: @unchecked Sendable {
             try requiredTerminalService().openOnMac(
                 sessionID: request.sessionID
             )
+        case .terminalRename:
+            guard
+                let protocolVersion =
+                    context.negotiatedProtocolVersion,
+                protocolVersion
+                    >= ReLandConstants
+                        .minimumTerminalRenameProtocolVersion
+            else {
+                throw HostServerError.protocolMismatch
+            }
+            let request = try WireJSON.decode(
+                TerminalRenameRequest.self,
+                from: packet.payload
+            )
+            try requiredTerminalService().renameSession(
+                sessionID: request.sessionID,
+                name: request.name
+            )
+            try sendTerminalSessions(to: context)
         case .terminalKill:
             let request = try WireJSON.decode(
                 TerminalSessionRequest.self,
@@ -771,6 +796,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                         self.send(
                             error: error,
                             isRecoverable: true,
+                            requestKind: .captureTargetListRequest,
                             to: context
                         )
                     }
@@ -810,6 +836,7 @@ public final class RemoteHostServer: @unchecked Sendable {
                         self.send(
                             error: error,
                             isRecoverable: true,
+                            requestKind: .captureTargetSelectRequest,
                             to: context
                         )
                     }
@@ -999,6 +1026,8 @@ public final class RemoteHostServer: @unchecked Sendable {
     private func send(
         error: Error,
         isRecoverable: Bool = false,
+        requestKind: WireMessageKind? = nil,
+        requestID: UUID? = nil,
         to context: ClientContext,
         completion: (@Sendable () -> Void)? = nil
     ) {
@@ -1007,6 +1036,8 @@ public final class RemoteHostServer: @unchecked Sendable {
                 message: hostError.localizedDescription,
                 code: hostError.remoteCode,
                 isRecoverable: isRecoverable,
+                requestKind: requestKind,
+                requestID: requestID,
                 to: context,
                 completion: completion
             )
@@ -1015,6 +1046,8 @@ public final class RemoteHostServer: @unchecked Sendable {
                 message: error.localizedDescription,
                 code: .internalError,
                 isRecoverable: isRecoverable,
+                requestKind: requestKind,
+                requestID: requestID,
                 to: context,
                 completion: completion
             )
@@ -1025,6 +1058,8 @@ public final class RemoteHostServer: @unchecked Sendable {
         message: String,
         code: RemoteErrorCode,
         isRecoverable: Bool = false,
+        requestKind: WireMessageKind? = nil,
+        requestID: UUID? = nil,
         to context: ClientContext,
         completion: (@Sendable () -> Void)? = nil
     ) {
@@ -1032,7 +1067,9 @@ public final class RemoteHostServer: @unchecked Sendable {
             RemoteErrorMessage(
                 code: code,
                 message: message,
-                isRecoverable: isRecoverable
+                isRecoverable: isRecoverable,
+                requestKind: requestKind,
+                requestID: requestID
             )
         ) else {
             completion?()
@@ -1081,17 +1118,44 @@ public final class RemoteHostServer: @unchecked Sendable {
         }
 
         private func sendTerminalSessions(
-            to context: ClientContext
+            to context: ClientContext,
+            createdSessionID: String? = nil,
+            createdRequestID: UUID? = nil
         ) throws {
             let sessions = try requiredTerminalService().listSessions()
+            let supportsCreationCorrelation =
+                context.negotiatedProtocolVersion.map {
+                    $0 >= ReLandConstants
+                        .minimumTerminalCreationCorrelationProtocolVersion
+                } ?? false
             context.connection.send(
                 WirePacket(
                     kind: .terminalListResponse,
                     payload: try WireJSON.encode(
-                        TerminalSessionList(sessions: sessions)
+                        TerminalSessionList(
+                            sessions: sessions,
+                            createdSessionID:
+                                supportsCreationCorrelation
+                                ? createdSessionID
+                                : nil,
+                            createdRequestID:
+                                supportsCreationCorrelation
+                                ? createdRequestID
+                                : nil
+                        )
                     )
                 )
             )
+        }
+
+        private func requestID(for packet: WirePacket) -> UUID? {
+            guard packet.kind == .terminalCreateRequest else {
+                return nil
+            }
+            return try? WireJSON.decode(
+                TerminalCreateRequest.self,
+                from: packet.payload
+            ).requestID
         }
 
         private func attachTerminal(
@@ -1210,6 +1274,7 @@ private extension WireMessageKind {
              .terminalDetach,
              .terminalDetached,
              .terminalOpenOnMac,
+             .terminalRename,
              .terminalKill,
              .terminalArtifactListRequest,
              .terminalArtifactListResponse,

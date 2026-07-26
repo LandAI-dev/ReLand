@@ -28,6 +28,12 @@ let permissionState = ProcessInfo.processInfo.environment[
     : .granted
 private let terminalService = try makeTerminalService()
 private let fileService = EchoRemoteFileService()
+private let configuration = RemoteHostConfiguration(
+    hostID: "reland-e2e-host",
+    hostName: "ReLand E2E Host",
+    port: port,
+    credentials: [credential]
+)
 let server = RemoteHostServer(
     frameSource: frameSource,
     inputSink: inputSink,
@@ -58,17 +64,19 @@ inputSink.onEvent = { event, summary in
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
             server.disconnectClients()
         }
+    } else if case .text("__RELAND_DELAYED_DISCONNECT__") = event {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            server.stop()
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + 1.5
+            ) {
+                server.start(configuration: configuration)
+            }
+        }
     }
 }
 
-server.start(
-    configuration: RemoteHostConfiguration(
-        hostID: "reland-e2e-host",
-        hostName: "ReLand E2E Host",
-        port: port,
-        credentials: [credential]
-    )
-)
+server.start(configuration: configuration)
 
 dispatchMain()
 
@@ -90,6 +98,7 @@ private final class EchoTerminalService:
     )
 
     private let lock = NSLock()
+    private var attachmentCounts: [String: Int] = [:]
     private var sessions: [TerminalSessionInfo] = [
         TerminalSessionInfo(
             id: "rl-e2e",
@@ -130,17 +139,26 @@ private final class EchoTerminalService:
     func attach(
         attachmentID: UUID,
         sessionID: String,
-        columns _: Int,
-        rows _: Int,
+        columns: Int,
+        rows: Int,
         outputHandler: @escaping @Sendable (Data) -> Void,
         terminationHandler: @escaping @Sendable () -> Void
     ) throws -> any RemoteTerminalAttachment {
+        lock.lock()
         guard sessions.contains(where: { $0.id == sessionID }) else {
+            lock.unlock()
             throw EchoTerminalError.missingSession
         }
+        let attachmentNumber =
+            (attachmentCounts[sessionID] ?? 0) + 1
+        attachmentCounts[sessionID] = attachmentNumber
+        lock.unlock()
         return EchoTerminalAttachment(
             attachmentID: attachmentID,
             sessionID: sessionID,
+            attachmentNumber: attachmentNumber,
+            columns: columns,
+            rows: rows,
             outputHandler: outputHandler,
             terminationHandler: terminationHandler
         )
@@ -150,6 +168,26 @@ private final class EchoTerminalService:
         guard sessions.contains(where: { $0.id == sessionID }) else {
             throw EchoTerminalError.missingSession
         }
+    }
+
+    func renameSession(sessionID: String, name: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard
+            let index = sessions.firstIndex(where: {
+                $0.id == sessionID
+            })
+        else {
+            throw EchoTerminalError.missingSession
+        }
+        let session = sessions[index]
+        sessions[index] = TerminalSessionInfo(
+            id: session.id,
+            name: name,
+            windowCount: session.windowCount,
+            attachedClientCount: session.attachedClientCount,
+            createdAt: session.createdAt
+        )
     }
 
     func killSession(sessionID: String) throws {
@@ -164,11 +202,15 @@ private final class EchoTerminalService:
         guard sessions.contains(where: { $0.id == sessionID }) else {
             throw EchoTerminalError.missingSession
         }
+        if sessionID != "rl-e2e" {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        let artifactID = "artifact-\(sessionID)"
         return [
             TerminalArtifactInfo(
-                id: "e2e-artifact",
+                id: artifactID,
                 sessionID: sessionID,
-                name: "e2e-artifact.txt",
+                name: "\(sessionID)-artifact.txt",
                 contentType: "public.plain-text",
                 kind: .text,
                 byteCount: Int64(Self.artifactData.count),
@@ -186,7 +228,7 @@ private final class EchoTerminalService:
             throw EchoTerminalError.missingSession
         }
         guard
-            request.artifactID == "e2e-artifact",
+            request.artifactID == "artifact-\(request.sessionID)",
             request.offset >= 0,
             request.offset <= Int64(Self.artifactData.count),
             request.length > 0
@@ -217,19 +259,29 @@ private final class EchoTerminalAttachment:
     let attachmentID: UUID
     let sessionID: String
 
+    private let attachmentNumber: Int
+    private let columns: Int
+    private let rows: Int
     private let outputHandler: @Sendable (Data) -> Void
     private let terminationHandler: @Sendable () -> Void
     private let lock = NSLock()
     private var isClosed = false
+    private var backspaceCount = 0
 
     init(
         attachmentID: UUID,
         sessionID: String,
+        attachmentNumber: Int,
+        columns: Int,
+        rows: Int,
         outputHandler: @escaping @Sendable (Data) -> Void,
         terminationHandler: @escaping @Sendable () -> Void
     ) {
         self.attachmentID = attachmentID
         self.sessionID = sessionID
+        self.attachmentNumber = attachmentNumber
+        self.columns = columns
+        self.rows = rows
         self.outputHandler = outputHandler
         self.terminationHandler = terminationHandler
     }
@@ -238,6 +290,7 @@ private final class EchoTerminalAttachment:
         var lines = [
             "",
             "ReLand E2E terminal",
+            "attachment-\(attachmentNumber)-size-\(columns)x\(rows)",
             "Swipe vertically for history and horizontally for wide output.",
         ]
         for index in 1...120 {
@@ -249,11 +302,24 @@ private final class EchoTerminalAttachment:
             )
             lines.append(prefix + label + padding + "|")
         }
+        lines.append(
+            "attachment-\(attachmentNumber)-size-\(columns)x\(rows)"
+        )
         lines.append("$ ")
         outputHandler(Data(lines.joined(separator: "\r\n").utf8))
     }
 
     func send(_ data: Data) {
+        if data == Data([0x7F]) {
+            lock.lock()
+            backspaceCount += 1
+            let count = backspaceCount
+            lock.unlock()
+            outputHandler(
+                Data("\rbackspace-count-\(count)".utf8)
+            )
+            return
+        }
         outputHandler(data)
         if data.contains(0x0D) {
             outputHandler(Data("\r\n$ ".utf8))

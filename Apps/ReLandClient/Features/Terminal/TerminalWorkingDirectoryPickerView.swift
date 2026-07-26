@@ -10,6 +10,33 @@ struct TerminalWorkingDirectoryPickerView: View {
     var body: some View {
         NavigationStack {
             List {
+                if
+                    model.remoteFilePath.isEmpty,
+                    !model.recentTerminalWorkingDirectories().isEmpty
+                {
+                    Section("Recent projects") {
+                        ForEach(
+                            model.recentTerminalWorkingDirectories()
+                        ) { directory in
+                            Button {
+                                onSelect(
+                                    directory.path,
+                                    directory.name
+                                )
+                            } label: {
+                                Label(
+                                    directory.name,
+                                    systemImage: "clock.arrow.circlepath"
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier(
+                                "recentWorkingDirectory-\(directory.path)"
+                            )
+                        }
+                    }
+                }
+
                 if !model.remoteFilePath.isEmpty {
                     Section {
                         Button {
@@ -32,11 +59,7 @@ struct TerminalWorkingDirectoryPickerView: View {
                     }
                 }
 
-                Section(
-                    model.remoteFilePath.isEmpty
-                        ? "Approved locations"
-                        : "Folders"
-                ) {
+                Section {
                     let directories = model.remoteFiles.filter {
                         $0.kind == .directory
                     }
@@ -70,6 +93,19 @@ struct TerminalWorkingDirectoryPickerView: View {
                             )
                         }
                     }
+                } header: {
+                    Text(
+                        model.remoteFilePath.isEmpty
+                            ? "Approved locations"
+                            : "Folders"
+                    )
+                } footer: {
+                    if model.remoteFilePath.isEmpty {
+                        Text(
+                            "Approve a parent folder once in ReLand Host. "
+                                + "It remains available here until removed."
+                        )
+                    }
                 }
             }
             .overlay {
@@ -84,6 +120,9 @@ struct TerminalWorkingDirectoryPickerView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .accessibilityIdentifier(
+                        "cancelWorkingDirectoryPickerButton"
+                    )
                 }
                 if model.remoteFileParentPath != nil {
                     ToolbarItem(placement: .navigation) {
@@ -98,9 +137,6 @@ struct TerminalWorkingDirectoryPickerView: View {
                     }
                 }
             }
-        }
-        .task {
-            model.requestRemoteFiles(path: "")
         }
     }
 

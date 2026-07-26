@@ -241,21 +241,29 @@ public struct RemoteErrorMessage: Codable, Equatable, Sendable {
     public let code: RemoteErrorCode
     public let message: String
     public let isRecoverable: Bool
+    public let requestKind: WireMessageKind?
+    public let requestID: UUID?
 
     public init(
         code: RemoteErrorCode,
         message: String,
-        isRecoverable: Bool = false
+        isRecoverable: Bool = false,
+        requestKind: WireMessageKind? = nil,
+        requestID: UUID? = nil
     ) {
         self.code = code
         self.message = message
         self.isRecoverable = isRecoverable
+        self.requestKind = requestKind
+        self.requestID = requestID
     }
 
     private enum CodingKeys: String, CodingKey {
         case code
         case message
         case isRecoverable
+        case requestKind
+        case requestID
     }
 
     public init(from decoder: any Decoder) throws {
@@ -267,6 +275,14 @@ public struct RemoteErrorMessage: Codable, Equatable, Sendable {
                 Bool.self,
                 forKey: .isRecoverable
             ) ?? false
+        requestKind = try container.decodeIfPresent(
+            WireMessageKind.self,
+            forKey: .requestKind
+        )
+        requestID = try container.decodeIfPresent(
+            UUID.self,
+            forKey: .requestID
+        )
     }
 }
 
@@ -299,9 +315,65 @@ public struct TerminalSessionInfo:
 
 public struct TerminalSessionList: Codable, Equatable, Sendable {
     public let sessions: [TerminalSessionInfo]
+    public let createdSessionID: String?
+    public let createdRequestID: UUID?
 
-    public init(sessions: [TerminalSessionInfo]) {
+    public init(
+        sessions: [TerminalSessionInfo],
+        createdSessionID: String? = nil,
+        createdRequestID: UUID? = nil
+    ) {
         self.sessions = sessions
+        self.createdSessionID = createdSessionID
+        self.createdRequestID = createdRequestID
+    }
+}
+
+public enum TerminalCreationMatch: Equatable, Sendable {
+    case pending
+    case created(TerminalSessionInfo)
+    case ambiguous
+    case invalidResponse
+}
+
+public extension TerminalSessionList {
+    func creationMatch(
+        requestID: UUID,
+        existingSessionIDs: Set<String>,
+        allowsLegacyFallback: Bool = true
+    ) -> TerminalCreationMatch {
+        if let createdRequestID {
+            guard createdRequestID == requestID else {
+                return .pending
+            }
+            guard
+                let createdSessionID,
+                let session = sessions.first(where: {
+                    $0.id == createdSessionID
+                })
+            else {
+                return .invalidResponse
+            }
+            return .created(session)
+        }
+
+        guard createdSessionID == nil else {
+            return .invalidResponse
+        }
+        guard allowsLegacyFallback else {
+            return .pending
+        }
+        let additions = sessions.filter {
+            !existingSessionIDs.contains($0.id)
+        }
+        switch additions.count {
+        case 0:
+            return .pending
+        case 1:
+            return .created(additions[0])
+        default:
+            return .ambiguous
+        }
     }
 }
 
@@ -351,17 +423,20 @@ public struct AILaunchProfile:
 }
 
 public struct TerminalCreateRequest: Codable, Equatable, Sendable {
+    public let requestID: UUID?
     public let preferredName: String?
     public let launchProfile: TerminalLaunchProfile
     public let launchArguments: [String]
     public let workingDirectoryPath: String?
 
     public init(
+        requestID: UUID? = nil,
         preferredName: String? = nil,
         launchProfile: TerminalLaunchProfile = .shell,
         launchArguments: [String] = [],
         workingDirectoryPath: String? = nil
     ) {
+        self.requestID = requestID
         self.preferredName = preferredName
         self.launchProfile = launchProfile
         self.launchArguments = launchArguments
@@ -422,6 +497,16 @@ public struct TerminalSessionRequest: Codable, Equatable, Sendable {
 
     public init(sessionID: String) {
         self.sessionID = sessionID
+    }
+}
+
+public struct TerminalRenameRequest: Codable, Equatable, Sendable {
+    public let sessionID: String
+    public let name: String
+
+    public init(sessionID: String, name: String) {
+        self.sessionID = sessionID
+        self.name = name
     }
 }
 
