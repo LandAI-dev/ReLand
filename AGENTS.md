@@ -9,9 +9,12 @@ Project Agent Skills are canonical under `.agents/skills/`:
   control, copy, theme, layout, animation, or accessibility change.
 - Activate `reland-e2e-review` after implementing a feature or behavior change
   and before declaring it complete.
+- Activate `code-review` before creating a pull request, when reviewing a pull
+  request, after review-driven changes, and before approval or merge.
 
 Claude Code discovery links live under `.claude/skills/`; edit the canonical
-`.agents/skills/` files rather than duplicating their content.
+`.agents/skills/` files rather than duplicating their content. Contributor
+usage is documented in `docs/AI_WORKFLOW.md`.
 
 The UI/UX skill defines the product design contract. The E2E review skill makes
 running the simulator and Mac host, plus redacted screenshots or recordings,
@@ -40,7 +43,7 @@ failure path. Verify that behavior changes include the relevant unit,
 integration, simulator, privacy, and security coverage. Copilot review is
 advisory and does not replace the repository's required human approval.
 
-Do not bypass either skill because a build or unit test passes. Do not modify
+Do not bypass the relevant skills because a build or unit test passes. Do not modify
 protected workflows, scripts, signing configuration, vendored dependencies,
 package manifests, privacy manifests, or security policy unless the task
 explicitly requires it and repository policy permits it.
