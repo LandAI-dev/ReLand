@@ -399,14 +399,10 @@ final class ReLandUITests: XCTestCase {
         let gridSize = terminalGrid.label
             .replacingOccurrences(of: "grid ", with: "")
 
-        app.buttons["terminalOptionsButton"].tap()
-        let terminalReconnect = app.buttons[
-            "terminalReconnectTestButton"
-        ]
-        XCTAssertTrue(
-            terminalReconnect.waitForExistence(timeout: 5)
+        tapTerminalOption(
+            "terminalReconnectTestButton",
+            in: app
         )
-        terminalReconnect.tap()
         let terminalConnectionStatus = app.staticTexts[
             "terminalConnectionStatus"
         ]
@@ -604,14 +600,10 @@ final class ReLandUITests: XCTestCase {
         portraitScreenshot.lifetime = .keepAlways
         add(portraitScreenshot)
 
-        app.buttons["terminalOptionsButton"].tap()
-        let delayedReconnect = app.buttons[
-            "terminalDelayedReconnectTestButton"
-        ]
-        XCTAssertTrue(
-            delayedReconnect.waitForExistence(timeout: 5)
+        tapTerminalOption(
+            "terminalDelayedReconnectTestButton",
+            in: app
         )
-        delayedReconnect.tap()
         XCTAssertTrue(
             app.staticTexts["terminalConnectionStatus"]
                 .waitForExistence(timeout: 5)
@@ -879,6 +871,22 @@ final class ReLandUITests: XCTestCase {
         XCTAssertTrue(control.waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 0.35)
         control.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        .tap()
+    }
+
+    private func tapTerminalOption(
+        _ identifier: String,
+        in app: XCUIApplication
+    ) {
+        app.buttons["terminalOptionsButton"].tap()
+        let option = app.buttons.matching(
+            identifier: identifier
+        ).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 0.35)
+        option.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         )
         .tap()
