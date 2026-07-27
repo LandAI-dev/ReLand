@@ -37,7 +37,7 @@ Read:
 - adjacent views that solve a similar interaction;
 - `Apps/ReLandClient/App/ReLandTheme.swift` for client work, or nearby
   `Apps/ReLandHost` views and `HostCard` usage for host work;
-- the corresponding `ClientAppModel` state and error flow;
+- the corresponding `ClientAppModel` or `HostAppModel` state and error flow;
 - existing accessibility identifiers and XCUITests;
 - the UI and privacy rules in `CONTRIBUTING.md`.
 
