@@ -179,7 +179,8 @@ Before creating a PR:
 
 1. Re-read the full diff and remove unrelated changes.
 2. Confirm the branch is based on current `origin/main`.
-3. Complete the checklist in `.github/PULL_REQUEST_TEMPLATE.md`.
+3. Complete the extended checklist in
+   `assets/PULL_REQUEST_TEMPLATE.md`.
 4. Describe user-visible behavior and the affected trust boundary.
 5. List exact validation commands and redacted evidence.
 6. Link protocol, architecture, privacy, security, or release documentation
@@ -191,7 +192,7 @@ GitHub CLI:
 
 ```sh
 PR_BODY=$(mktemp "${TMPDIR:-/tmp}/reland-pr-body.XXXXXX")
-cp .github/PULL_REQUEST_TEMPLATE.md "$PR_BODY"
+cp .agents/skills/code-review/assets/PULL_REQUEST_TEMPLATE.md "$PR_BODY"
 # Edit every section and explain each N/A item.
 gh pr create --base main --body-file "$PR_BODY"
 ```

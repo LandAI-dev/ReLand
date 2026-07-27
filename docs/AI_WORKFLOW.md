@@ -18,8 +18,9 @@ Tool-specific discovery:
 
 - GitHub Copilot CLI, Codex, and Gemini CLI discover `.agents/skills/`.
 - Claude Code discovers the linked copies under `.claude/skills/`.
-- GitHub Copilot code review can use the linked `code-review` skill under
-  `.github/skills/` when the account has an eligible paid Copilot plan.
+- GitHub Copilot code review reads `AGENTS.md` when the account has an eligible
+  paid Copilot plan. The local `code-review` skill remains available through
+  `.agents/skills/`.
 - Tools without Agent Skills support should read `AGENTS.md`,
   `CONTRIBUTING.md`, and this guide.
 
@@ -63,7 +64,8 @@ Confirm:
   passed;
 - protocol and architecture compatibility is documented;
 - UI evidence is redacted;
-- every checklist item in `.github/PULL_REQUEST_TEMPLATE.md` is answered.
+- every checklist item in
+  `.agents/skills/code-review/assets/PULL_REQUEST_TEMPLATE.md` is answered.
 
 Useful commands:
 
@@ -77,7 +79,7 @@ git diff --stat origin/main...HEAD
 ./Scripts/test-e2e-simulator
 ./Scripts/check-release-security
 PR_BODY=$(mktemp "${TMPDIR:-/tmp}/reland-pr-body.XXXXXX")
-cp .github/PULL_REQUEST_TEMPLATE.md "$PR_BODY"
+cp .agents/skills/code-review/assets/PULL_REQUEST_TEMPLATE.md "$PR_BODY"
 gh pr create --base main --body-file "$PR_BODY"
 ```
 
