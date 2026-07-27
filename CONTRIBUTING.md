@@ -40,6 +40,24 @@ Keep dependencies directed from apps to packages and from `ReLandHostCore` to
 Do not add broad catches, silent fallbacks, unsafe force-casts, or destructive
 cleanup that can cross an app-owned boundary.
 
+## AI-assisted development
+
+Project Agent Skills are committed under `.agents/skills/` and require no
+separate installation in compatible tools. Read
+[`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md) for discovery paths, explicit
+invocation examples, the feature-development sequence, the pre-PR checklist,
+and the review workflow.
+
+Use:
+
+- `reland-ui-ux` during user-facing implementation;
+- `reland-e2e-review` after completing behavior changes;
+- `code-review` before creating, approving, or merging a pull request.
+
+AI review is advisory. Every external contribution still requires the human
+approval, passing checks, latest-push approval, and resolved conversations
+defined below.
+
 ## Review and merge
 
 - Submit changes through a pull request; contributors cannot push to `main`.

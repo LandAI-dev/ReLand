@@ -74,14 +74,15 @@ regression coverage.
 - Do not modify protected workflows, scripts, signing files, package manifests,
   vendored code, or security policy merely to make a review command easier.
 
-### 3. Add the regression first
+### 3. Confirm regression coverage
 
 For a bug or changed behavior:
 
-1. Add or update the smallest test that expresses the user contract.
-2. Confirm it fails for the intended reason when practical.
-3. Implement the change.
-4. Run the focused test again.
+1. Confirm the implementation includes the smallest test that expresses the
+   user contract.
+2. If coverage is missing, add it before completing the review.
+3. Confirm the regression detects the prior behavior when practical.
+4. Run the focused test against the completed implementation.
 
 Use stable accessibility identifiers for controls. Wait for observable state;
 do not add arbitrary sleeps when an element, label, callback, or network
@@ -99,12 +100,14 @@ swift test --filter RelevantTestName
 Before completion, run the repository unit/security entrypoint:
 
 ```sh
+cd "$REPO_ROOT"
 ./Scripts/test-unit
 ```
 
 Regenerate the ignored Xcode project through the repository entrypoint:
 
 ```sh
+cd "$REPO_ROOT"
 ./Scripts/bootstrap
 ```
 
@@ -132,10 +135,11 @@ RELAND_E2E_DERIVED_DATA="$ARTIFACT_ROOT/E2EHostDerived" \
 
 Before an adaptive or user-interface completion review, inspect
 `xcrun simctl list devices available` and ensure both an iPhone and an iPad are
-available. Set `RELAND_IPHONE_UDID` and `RELAND_IPAD_UDID` explicitly when the
-default selection is ambiguous. The script can skip iPad when none is
-available; that is an incomplete UI review and must be reported, not treated
-as iPad coverage.
+available. Use dedicated ReLand review simulators and set
+`RELAND_IPHONE_UDID` and `RELAND_IPAD_UDID` explicitly. Do not rely on automatic
+simulator selection for a visual review. The script can skip iPad when none is
+available; that is an incomplete UI review and must be reported, not treated as
+iPad coverage.
 
 The script performs a best-effort local-network privacy grant that some
 simulator runtimes do not support. Do not treat that command as evidence.
@@ -153,8 +157,13 @@ When host UI or host composition changed, inspect the built
 
 - Check whether port `45454` is already owned before launching another host.
 - Do not terminate the installed host without explicit permission.
-- Use `RELAND_SYNTHETIC=1` for a debug build when synthetic capture is
-  sufficient.
+- `RELAND_SYNTHETIC=1` replaces capture/input behavior only. It does not
+  isolate Keychain credentials, approved folders, tmux sessions, storage,
+  hostname, or network address.
+- Review host UI from a dedicated macOS test account when screenshots or
+  recordings could expose persisted state. Otherwise build the host and use
+  `ReLandE2EHost` for the cross-device behavior without capturing the real host
+  window.
 - Verify the exact host state involved: permissions, connection count,
   terminal list, approved folders, error state, or recovery behavior.
 
