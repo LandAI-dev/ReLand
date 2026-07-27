@@ -65,7 +65,7 @@ final class ReLandUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.staticTexts["Percy's Very Long MacBook Pro Name"]
+            app.staticTexts["Example MacBook Pro with a Long Name"]
                 .waitForExistence(timeout: 5)
         )
         for identifier in [
@@ -76,6 +76,88 @@ final class ReLandUITests: XCTestCase {
             XCTAssertTrue(app.buttons[identifier].isHittable)
         }
         attachScreenshot(named: "Device actions")
+    }
+
+    func testTerminalActionsSheetKeepsStableHierarchyWhileScrolling() {
+        let app = launchE2EApplication()
+
+        app.buttons["terminalButton"].tap()
+        waitForTerminalList(in: app)
+
+        let more = app.buttons["terminalMoreButton-rl-e2e"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+
+        let sheet = app.navigationBars["E2E Terminal"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            app.navigationBars["Terminal Options"].exists
+        )
+        attachScreenshot(named: "Terminal actions top")
+
+        app.swipeUp()
+
+        XCTAssertTrue(sheet.exists)
+        XCTAssertTrue(
+            app.buttons["terminalActionStopButton"]
+                .waitForExistence(timeout: 5)
+        )
+        attachScreenshot(named: "Terminal actions scrolled")
+
+    }
+
+    private func verifyTerminalSessionFilesStayScoped(
+        in app: XCUIApplication
+    ) {
+        if !app.buttons["terminalMoreButton-rl-e2e-2"].exists {
+            app.buttons["createTerminalButton"].tap()
+            let createTerminal = app.navigationBars["New Terminal"]
+            XCTAssertTrue(
+                createTerminal.waitForExistence(timeout: 5)
+            )
+            createTerminal.buttons["Create"].tap()
+            XCTAssertTrue(
+                createTerminal.waitForNonExistence(timeout: 5)
+            )
+            XCTAssertTrue(
+                app.descendants(matching: .any)["terminalView"]
+                    .waitForExistence(timeout: 10)
+            )
+            app.buttons["terminalSessionsButton"].tap()
+        }
+
+        openSessionFiles(
+            sessionID: "rl-e2e",
+            expectedArtifact: "rl-e2e-artifact.txt",
+            in: app
+        )
+        app.navigationBars["Artifacts"].buttons["Done"].tap()
+        app.navigationBars["E2E Terminal"].buttons["Done"].tap()
+
+        let secondMore = app.buttons[
+            "terminalMoreButton-rl-e2e-2"
+        ]
+        XCTAssertTrue(secondMore.waitForExistence(timeout: 5))
+        secondMore.tap()
+        let files = app.buttons[
+            "terminalActionSessionFilesButton"
+        ]
+        XCTAssertTrue(files.waitForExistence(timeout: 5))
+        files.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Artifacts"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(
+            app.staticTexts["rl-e2e-artifact.txt"].exists
+        )
+        XCTAssertTrue(
+            app.staticTexts["rl-e2e-2-artifact.txt"]
+                .waitForExistence(timeout: 5)
+        )
+        app.navigationBars["Artifacts"].buttons["Done"].tap()
+        app.navigationBars["terminal-2"].buttons["Done"].tap()
     }
 
     func testSyntheticHostStreamsInputsAndReconnects() {
@@ -183,6 +265,70 @@ final class ReLandUITests: XCTestCase {
         app.buttons["terminalButton"].tap()
         waitForTerminalList(in: app)
 
+        let terminalMore = app.buttons[
+            "terminalMoreButton-rl-e2e"
+        ]
+        XCTAssertTrue(terminalMore.waitForExistence(timeout: 5))
+        XCTAssertTrue(terminalMore.isHittable)
+        terminalMore.tap()
+
+        let terminalOptions = app.navigationBars[
+            "E2E Terminal"
+        ]
+        XCTAssertTrue(
+            terminalOptions.waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.buttons["terminalActionOpenButton"].exists
+        )
+        XCTAssertTrue(
+            app.buttons["terminalActionSessionFilesButton"].exists
+        )
+        XCTAssertTrue(
+            app.buttons["terminalActionMacFilesButton"].exists
+        )
+
+        let renameAction = app.buttons[
+            "terminalActionRenameButton"
+        ]
+        for _ in 0..<3 where !renameAction.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(renameAction.isHittable)
+        renameAction.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Rename Terminal"]
+                .waitForExistence(timeout: 5)
+        )
+        let terminalName = app.textFields["terminalNameField"]
+        XCTAssertTrue(terminalName.waitForExistence(timeout: 5))
+        terminalName.tap()
+        terminalName.typeText(
+            String(
+                repeating: XCUIKeyboardKey.delete.rawValue,
+                count: 32
+            )
+        )
+        terminalName.typeText("Renamed Terminal")
+        app.buttons["saveTerminalNameButton"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Rename Terminal"]
+                .waitForNonExistence(timeout: 5)
+        )
+        app.navigationBars["Renamed Terminal"]
+            .buttons["Done"]
+            .tap()
+        XCTAssertTrue(
+            app.staticTexts["Renamed Terminal"]
+                .waitForExistence(timeout: 5)
+        )
+        renameTerminal(
+            sessionID: "rl-e2e",
+            to: "E2E Terminal",
+            in: app
+        )
+
         app.buttons["createTerminalButton"].tap()
         let createTerminal = app.navigationBars["New Terminal"]
         XCTAssertTrue(
@@ -209,16 +355,14 @@ final class ReLandUITests: XCTestCase {
         XCTAssertTrue(
             createTerminal.waitForNonExistence(timeout: 5)
         )
-        XCTAssertTrue(
-            app.staticTexts["terminal-2"]
-                .waitForExistence(timeout: 10)
-        )
-
-        app.staticTexts["E2E Terminal"].tap()
         let terminal = app.descendants(
             matching: .any
         )["terminalView"]
-        XCTAssertTrue(terminal.waitForExistence(timeout: 5))
+        XCTAssertTrue(terminal.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            app.staticTexts["terminal-2"]
+                .waitForExistence(timeout: 5)
+        )
         terminal.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         )
@@ -242,7 +386,84 @@ final class ReLandUITests: XCTestCase {
             timeout: 5
         )
         app.buttons["terminalKeyboardButton"].tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch
+                .waitForNonExistence(timeout: 5)
+        )
+        let terminalGrid = app.staticTexts[
+            "terminalGridSizeStatus"
+        ]
+        XCTAssertTrue(
+            terminalGrid.waitForExistence(timeout: 5)
+        )
+        let gridSize = terminalGrid.label
+            .replacingOccurrences(of: "grid ", with: "")
+
+        tapTerminalOption(
+            "terminalReconnectTestButton",
+            in: app
+        )
+        let terminalConnectionStatus = app.staticTexts[
+            "terminalConnectionStatus"
+        ]
+        XCTAssertTrue(
+            terminalConnectionStatus.waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            terminalConnectionStatus.waitForNonExistence(timeout: 10)
+        )
+        waitForLabelContaining(
+            "attachment-2-size-\(gridSize)",
+            element: terminalOutput,
+            timeout: 10
+        )
+
+        app.buttons["terminalKeyboardButton"].tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 5)
+        )
+        app.textViews.firstMatch.typeText("after-reconnect")
+        waitForLabelContaining(
+            "after-reconnect",
+            element: terminalOutput,
+            timeout: 5
+        )
+        app.buttons["terminalKeyboardButton"].tap()
+
+        let backspace = app.buttons["terminalKey-Backspace"]
+        XCTAssertTrue(backspace.waitForExistence(timeout: 5))
+        XCTAssertTrue(backspace.isHittable)
+        backspace.press(forDuration: 0.9)
+        waitForLabelContaining(
+            "backspace-count-3",
+            element: terminalOutput,
+            timeout: 5
+        )
+
         app.buttons["terminalSessionsButton"].tap()
+        XCTAssertTrue(
+            app.buttons["createTerminalButton"]
+                .waitForExistence(timeout: 5)
+        )
+        verifyTerminalSessionFilesStayScoped(in: app)
+        app.buttons["createTerminalButton"].tap()
+        let rememberedDirectory = app.staticTexts[
+            "selectedWorkingDirectory"
+        ]
+        XCTAssertTrue(
+            rememberedDirectory.waitForExistence(timeout: 5)
+        )
+        XCTAssertEqual(rememberedDirectory.label, "Test Home")
+        let useWorkspace = app.buttons["useSessionWorkspaceButton"]
+        XCTAssertTrue(useWorkspace.waitForExistence(timeout: 5))
+        useWorkspace.tap()
+        app.buttons["chooseProjectFolderButton"].tap()
+        XCTAssertTrue(
+            app.buttons["recentWorkingDirectory-@test"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["cancelWorkingDirectoryPickerButton"].tap()
+        app.buttons["cancelCreateTerminalButton"].tap()
         app.buttons["Done"].tap()
 
         let beforeReconnect = frames.label
@@ -352,11 +573,11 @@ final class ReLandUITests: XCTestCase {
             app.navigationBars["Artifacts"]
                 .waitForExistence(timeout: 5)
         )
-        let artifact = app.staticTexts["e2e-artifact.txt"]
+        let artifact = app.staticTexts["rl-e2e-artifact.txt"]
         XCTAssertTrue(artifact.waitForExistence(timeout: 5))
         artifact.tap()
         XCTAssertTrue(
-            app.navigationBars["e2e-artifact.txt"]
+            app.navigationBars["rl-e2e-artifact.txt"]
                 .waitForExistence(timeout: 10)
         )
 
@@ -367,7 +588,7 @@ final class ReLandUITests: XCTestCase {
         artifactScreenshot.lifetime = .keepAlways
         add(artifactScreenshot)
 
-        app.navigationBars["e2e-artifact.txt"]
+        app.navigationBars["rl-e2e-artifact.txt"]
             .buttons["Done"].tap()
         app.navigationBars["Artifacts"]
             .buttons["Done"].tap()
@@ -378,6 +599,30 @@ final class ReLandUITests: XCTestCase {
         portraitScreenshot.name = "Terminal portrait"
         portraitScreenshot.lifetime = .keepAlways
         add(portraitScreenshot)
+
+        tapTerminalOption(
+            "terminalDelayedReconnectTestButton",
+            in: app
+        )
+        XCTAssertTrue(
+            app.staticTexts["terminalConnectionStatus"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["terminalSessionsButton"].tap()
+        let more = app.buttons["terminalMoreButton-rl-e2e"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+        for identifier in [
+            "terminalActionOpenButton",
+            "terminalActionOpenOnMacButton",
+            "terminalActionSessionFilesButton",
+            "terminalActionMacFilesButton",
+            "terminalActionStopButton",
+        ] {
+            let action = app.buttons[identifier]
+            XCTAssertTrue(action.waitForExistence(timeout: 5))
+            XCTAssertFalse(action.isEnabled)
+        }
     }
 
     func testBrowseMacFilesAndPreview() {
@@ -631,6 +876,22 @@ final class ReLandUITests: XCTestCase {
         .tap()
     }
 
+    private func tapTerminalOption(
+        _ identifier: String,
+        in app: XCUIApplication
+    ) {
+        app.buttons["terminalOptionsButton"].tap()
+        let option = app.buttons.matching(
+            identifier: identifier
+        ).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 0.35)
+        option.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        .tap()
+    }
+
     private func waitForTerminalList(in app: XCUIApplication) {
         XCTAssertTrue(
             app.navigationBars["Terminal sessions"]
@@ -648,6 +909,75 @@ final class ReLandUITests: XCTestCase {
         let session = app.staticTexts[name]
         XCTAssertTrue(session.waitForExistence(timeout: 5))
         session.tap()
+    }
+
+    private func renameTerminal(
+        sessionID: String,
+        to name: String,
+        in app: XCUIApplication
+    ) {
+        let more = app.buttons[
+            "terminalMoreButton-\(sessionID)"
+        ]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+
+        let rename = app.buttons[
+            "terminalActionRenameButton"
+        ]
+        for _ in 0..<3 where !rename.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(rename.isHittable)
+        rename.tap()
+
+        let nameField = app.textFields["terminalNameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText(
+            String(
+                repeating: XCUIKeyboardKey.delete.rawValue,
+                count: 64
+            )
+        )
+        nameField.typeText(name)
+        app.buttons["saveTerminalNameButton"].tap()
+        XCTAssertTrue(
+            app.navigationBars["Rename Terminal"]
+                .waitForNonExistence(timeout: 5)
+        )
+        app.navigationBars[name]
+            .buttons["Done"]
+            .tap()
+        XCTAssertTrue(
+            app.staticTexts[name]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    private func openSessionFiles(
+        sessionID: String,
+        expectedArtifact: String,
+        in app: XCUIApplication
+    ) {
+        let more = app.buttons[
+            "terminalMoreButton-\(sessionID)"
+        ]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+        let files = app.buttons[
+            "terminalActionSessionFilesButton"
+        ]
+        XCTAssertTrue(files.waitForExistence(timeout: 5))
+        files.tap()
+        XCTAssertTrue(
+            app.navigationBars["Artifacts"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.staticTexts[expectedArtifact]
+                .waitForExistence(timeout: 5)
+        )
     }
 
     private func waitForLabel(

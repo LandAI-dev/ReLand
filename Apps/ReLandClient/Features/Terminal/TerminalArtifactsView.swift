@@ -7,14 +7,20 @@ struct TerminalArtifactsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    private var artifacts: [TerminalArtifactInfo] {
+        model.terminalArtifactSessionID == session.id
+            ? model.terminalArtifacts
+            : []
+    }
+
     var body: some View {
         NavigationStack {
             Group {
                 if model.isLoadingTerminalArtifacts,
-                   model.terminalArtifacts.isEmpty
+                   artifacts.isEmpty
                 {
                     ProgressView("Loading artifacts")
-                } else if model.terminalArtifacts.isEmpty {
+                } else if artifacts.isEmpty {
                     ContentUnavailableView {
                         Label("No artifacts", systemImage: "folder")
                     } description: {
@@ -23,13 +29,18 @@ struct TerminalArtifactsView: View {
                                 + "session's ReLand Artifacts folder."
                         )
                     } actions: {
-                        Button("Send to AI") {
-                            model.sendArtifactStorageInstruction()
+                        if
+                            model.attachedTerminalSessionID
+                                == session.id
+                        {
+                            Button("Send to AI") {
+                                model.sendArtifactStorageInstruction()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier(
+                                "sendArtifactInstructionButton"
+                            )
                         }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier(
-                            "sendArtifactInstructionButton"
-                        )
 
                         Button("Copy prompt") {
                             model.copyArtifactStorageInstruction()
@@ -39,7 +50,7 @@ struct TerminalArtifactsView: View {
                         )
                     }
                 } else {
-                    List(model.terminalArtifacts) { artifact in
+                    List(artifacts) { artifact in
                         Button {
                             model.downloadTerminalArtifact(artifact)
                         } label: {

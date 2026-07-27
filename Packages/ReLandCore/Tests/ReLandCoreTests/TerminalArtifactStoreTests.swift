@@ -4,6 +4,31 @@ import XCTest
 @testable import ReLandHostCore
 
 final class TerminalArtifactStoreTests: XCTestCase {
+    func testListsOnlyManagedStoredSessionIDs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ReLandArtifactIDs-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = TerminalArtifactStore(root: root)
+        _ = try store.prepareSession(sessionID: "rl-retained")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(
+                "unmanaged",
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        XCTAssertEqual(
+            try store.existingSessionIDs(),
+            ["rl-retained"]
+        )
+    }
+
     func testListsAndReadsArtifactChunks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

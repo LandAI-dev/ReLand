@@ -97,8 +97,13 @@ struct HostSettingsView: View {
                         + "and Accessibility remain controlled by macOS."
                 )
                 Text(
-                    "Approved folders are read-only. Cleanup actions "
-                        + "never delete the underlying approved folders."
+                    "Folder approvals are saved and reused until removed. "
+                        + "Phone file browsing is read-only, but terminal "
+                        + "and AI commands can modify working-folder files."
+                )
+                Text(
+                    "Cleanup actions never delete the underlying "
+                        + "approved folders."
                 )
             }
 

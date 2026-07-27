@@ -15,6 +15,8 @@ struct TerminalWorkspaceView: View {
     @State private var isArtifactsPresented = false
     @State private var isMacFilesPresented = false
     @State private var isCreateTerminalPresented = false
+    @State private var selectedActionSession:
+        TerminalSessionInfo?
 
     var body: some View {
         NavigationStack {
@@ -40,7 +42,7 @@ struct TerminalWorkspaceView: View {
                 if model.attachedTerminalSessionID == nil {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            isCreateTerminalPresented = true
+                            presentTerminalCreation()
                         } label: {
                             Label("New terminal", systemImage: "plus")
                         }
@@ -59,6 +61,12 @@ struct TerminalWorkspaceView: View {
         }
         .sheet(isPresented: $isCreateTerminalPresented) {
             TerminalCreateView(model: model)
+        }
+        .sheet(item: $selectedActionSession) { session in
+            TerminalSessionActionsSheet(
+                model: model,
+                initialSession: session
+            )
         }
         .alert(
             "Open external link?",
@@ -115,7 +123,7 @@ struct TerminalWorkspaceView: View {
                     )
                 } actions: {
                     Button("Create terminal") {
-                        isCreateTerminalPresented = true
+                        presentTerminalCreation()
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -131,17 +139,27 @@ struct TerminalWorkspaceView: View {
                             .buttonStyle(.plain)
 
                             Button {
-                                model.openTerminalOnMac(session)
+                                selectedActionSession = session
                             } label: {
-                                Image(
-                                    systemName:
-                                        "macwindow.on.rectangle"
-                                )
-                                .frame(width: 44, height: 44)
+                                VStack(spacing: 2) {
+                                    Image(systemName: "ellipsis.circle")
+                                        .font(.title3)
+                                    Text("More")
+                                        .font(.caption2.weight(.semibold))
+                                }
+                                .frame(minWidth: 52, minHeight: 44)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
                             .accessibilityLabel(
-                                "Open \(session.name) on Mac"
+                                "More options for \(session.name)"
+                            )
+                            .accessibilityHint(
+                                "Shows terminal actions and files"
+                            )
+                            .accessibilityIdentifier(
+                                "terminalMoreButton-\(session.id)"
                             )
                         }
                         .swipeActions {
@@ -173,6 +191,32 @@ struct TerminalWorkspaceView: View {
                     onViewportChange: { viewportState = $0 }
                 )
                 .id(session.id)
+
+                if !model.isTerminalAttachmentReady {
+                    Color.black.opacity(0.38)
+                        .allowsHitTesting(true)
+
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .tint(.white)
+                        Text(
+                            model.connectionState == .connected
+                                ? "Opening terminal"
+                                : "Reconnecting terminal"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .accessibilityIdentifier(
+                            "terminalConnectionStatus"
+                        )
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .background(
+                        ReLandTheme.terminalOverlay,
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                }
 
                 if model.isE2EMode {
                     Color.clear
@@ -239,6 +283,13 @@ struct TerminalWorkspaceView: View {
                         )
                         .accessibilityIdentifier(
                             "terminalHorizontalScrollStatus"
+                        )
+                        Text(
+                            "grid \(model.terminalColumns)"
+                                + "x\(model.terminalRows)"
+                        )
+                        .accessibilityIdentifier(
+                            "terminalGridSizeStatus"
                         )
                     }
                     .font(.system(size: 1))
@@ -361,6 +412,30 @@ struct TerminalWorkspaceView: View {
                     systemImage: "macwindow.on.rectangle"
                 )
             }
+            if model.isE2EMode {
+                Button {
+                    model.requestE2EDisconnect()
+                } label: {
+                    Label(
+                        "Test reconnect",
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .accessibilityIdentifier(
+                    "terminalReconnectTestButton"
+                )
+                Button {
+                    model.requestE2EDelayedDisconnect()
+                } label: {
+                    Label(
+                        "Test delayed reconnect",
+                        systemImage: "hourglass"
+                    )
+                }
+                .accessibilityIdentifier(
+                    "terminalDelayedReconnectTestButton"
+                )
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.bold))
@@ -446,6 +521,11 @@ struct TerminalWorkspaceView: View {
         model.detachTerminal()
         model.requestTerminalSessions()
         viewportState = .initial
+    }
+
+    private func presentTerminalCreation() {
+        model.prepareTerminalCreation()
+        isCreateTerminalPresented = true
     }
 
     @ViewBuilder
@@ -655,6 +735,11 @@ struct TerminalWorkspaceView: View {
             .accessibilityIdentifier("terminalMacFilesButton")
             terminalKey("Esc", bytes: [0x1B])
             terminalKey("Tab", bytes: [0x09])
+            terminalRepeatingKey(
+                "Backspace",
+                systemImage: "delete.left",
+                bytes: [0x7F]
+            )
             terminalKey("Ctrl-C", bytes: [0x03])
             terminalKey("Ctrl-D", bytes: [0x04])
             terminalActionKey("PgUp") {
@@ -704,22 +789,40 @@ struct TerminalWorkspaceView: View {
         }
     }
 
+    private func terminalRepeatingKey(
+        _ title: String,
+        systemImage: String,
+        bytes: [UInt8]
+    ) -> some View {
+        RepeatingTerminalKey(
+            title: title,
+            systemImage: systemImage
+        ) {
+            model.sendTerminalInput(Data(bytes))
+        }
+        .accessibilityIdentifier(
+            "terminalKey-\(title)"
+        )
+    }
+
     private func terminalActionKey(
         _ title: String,
         systemImage: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let keyWidth: CGFloat = systemImage == nil ? 56 : 44
+        return Button(action: action) {
             Group {
                 if let systemImage {
                     Image(systemName: systemImage)
                         .frame(minWidth: 24)
                 } else {
                     Text(title)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(width: keyWidth, height: 44)
         }
         .buttonStyle(TerminalKeyButtonStyle())
         .font(.caption.bold())
@@ -727,6 +830,89 @@ struct TerminalWorkspaceView: View {
         .accessibilityIdentifier(
             "terminalKey-\(title)"
         )
+    }
+}
+
+private struct RepeatingTerminalKey: View {
+    private static let maximumRepeatCount = 400
+
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    @State private var isPressed = false
+    @State private var repeatTask: Task<Void, Never>?
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .frame(width: 44, height: 44)
+            .foregroundStyle(ReLandTheme.accent)
+            .background(
+                isPressed
+                    ? ReLandTheme.accent.opacity(0.36)
+                    : ReLandTheme.controlBackground,
+                in: RoundedRectangle(cornerRadius: 9)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(
+                        ReLandTheme.accent.opacity(0.5),
+                        lineWidth: 1
+                    )
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        beginPress()
+                    }
+                    .onEnded { _ in
+                        endPress()
+                    }
+            )
+            .onDisappear {
+                endPress()
+            }
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(title)
+            .accessibilityAction {
+                action()
+            }
+    }
+
+    private func beginPress() {
+        guard !isPressed else {
+            return
+        }
+        isPressed = true
+        action()
+        repeatTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+                var repeatCount = 0
+                while
+                    !Task.isCancelled,
+                    repeatCount < Self.maximumRepeatCount
+                {
+                    action()
+                    repeatCount += 1
+                    try await Task.sleep(for: .milliseconds(75))
+                }
+                if !Task.isCancelled {
+                    isPressed = false
+                    repeatTask = nil
+                }
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func endPress() {
+        isPressed = false
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 }
 
@@ -793,10 +979,7 @@ private struct TerminalSessionRow: View {
                 Text(session.name)
                     .font(.headline)
                     .foregroundStyle(.primary)
-                Text(
-                    "\(session.windowCount) windows • "
-                        + "\(session.attachedClientCount) attached"
-                )
+                Text(summary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
@@ -808,5 +991,15 @@ private struct TerminalSessionRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("Attach to this terminal session")
+    }
+
+    private var summary: String {
+        let windows = session.windowCount == 1
+            ? "1 window"
+            : "\(session.windowCount) windows"
+        let attachments = session.attachedClientCount == 1
+            ? "1 attached device"
+            : "\(session.attachedClientCount) attached devices"
+        return "\(windows) • \(attachments)"
     }
 }

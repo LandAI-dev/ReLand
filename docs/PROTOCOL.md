@@ -23,7 +23,7 @@ terminal bytes use their defined binary payload fields.
 
 ## Compatibility negotiation
 
-The current supported range is `7...7`.
+The current supported range is `7...8`.
 
 The host challenge advertises:
 
@@ -50,13 +50,34 @@ and capture-target selection.
 - `29...32` — approved remote files.
 - `33...36` — capture-target listing and selection.
 - `37...38` — host permission/lock status.
-- `39...127` — reserved for future core protocol messages; unknown values are
+- `39` — terminal display-name updates.
+- `40...127` — reserved for future core protocol messages; unknown values are
   rejected.
 - `128...255` — optional extension messages; an older decoder skips the
   complete framed body when it does not recognize the kind.
 
 Do not reuse an assigned value. Add request/response models and integration
 tests with every new message.
+
+## Error context
+
+`RemoteErrorMessage` includes optional `requestKind` and `requestID` fields.
+Hosts set them when an error is caused by a specific request so clients can
+route concurrent terminal, file, and capture errors to the correct UI.
+Unsolicited session and frame-source errors omit them. Older payloads without
+these fields remain valid.
+
+`TerminalCreateRequest` carries a client-generated `requestID`.
+`TerminalSessionList` echoes it as `createdRequestID` alongside the optional
+`createdSessionID`. This lets the client attach the exact session created for
+the current attempt instead of inferring it from timestamps or list order.
+Protocol 7 hosts omit those fields; the client first refreshes the host's
+session list, then matches exactly one newly returned session ID.
+
+`TerminalRenameRequest` updates app-owned display metadata without changing
+the stable tmux session ID or its session-files directory. It requires
+negotiated protocol version 8; version 7 peers retain all earlier terminal
+features and do not expose the rename action.
 
 ## Limits
 

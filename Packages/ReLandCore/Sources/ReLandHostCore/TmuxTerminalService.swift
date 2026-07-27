@@ -12,12 +12,24 @@ public final class TmuxTerminalService:
     private static let basePath =
         "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
         + "/usr/sbin:/sbin"
+    private static let maximumSessionReservationAttempts = 1_000
+    private static let commandLock = NSLock()
 
     private let tmuxURL: URL
-    private let artifactStore = TerminalArtifactStore()
-    private let commandLock = NSLock()
+    private let artifactStore: TerminalArtifactStore
+    private let serverArguments: [String]
 
-    public init() throws {
+    public convenience init() throws {
+        try self.init(
+            artifactRoot: nil,
+            serverName: nil
+        )
+    }
+
+    init(
+        artifactRoot: URL?,
+        serverName: String?
+    ) throws {
         let candidates = [
             "/opt/homebrew/bin/tmux",
             "/usr/local/bin/tmux",
@@ -31,6 +43,10 @@ public final class TmuxTerminalService:
             throw TerminalServiceError.tmuxUnavailable
         }
         tmuxURL = URL(fileURLWithPath: path)
+        artifactStore = TerminalArtifactStore(root: artifactRoot)
+        serverArguments = serverName.map {
+            ["-L", $0]
+        } ?? []
     }
 
     public func listSessions() throws -> [TerminalSessionInfo] {
@@ -41,7 +57,7 @@ public final class TmuxTerminalService:
                 "-F",
                 "#{session_name}\t#{session_windows}\t"
                     + "#{session_attached}\t#{session_created}\t"
-                    + "#{window_name}",
+                    + "#{window_name}\t#{@reland_name}",
             ])
         } catch let error as TerminalServiceError {
             if case let .commandFailed(message) = error,
@@ -68,7 +84,7 @@ public final class TmuxTerminalService:
                     omittingEmptySubsequences: false
                 )
                 guard
-                    fields.count == 5,
+                    fields.count == 6,
                     let windows = Int(fields[1]),
                     let attached = Int(fields[2]),
                     let created = TimeInterval(fields[3])
@@ -85,6 +101,7 @@ public final class TmuxTerminalService:
                 return TerminalSessionInfo(
                     id: id,
                     name: Self.displayName(
+                        customName: String(fields[5]),
                         windowName: String(fields[4]),
                         windowCount: windows,
                         fallback: fallbackName
@@ -114,40 +131,64 @@ public final class TmuxTerminalService:
         launchArguments: [String] = [],
         workingDirectory: URL? = nil
     ) throws -> TerminalSessionInfo {
-        commandLock.lock()
-        defer { commandLock.unlock() }
+        Self.commandLock.lock()
+        defer { Self.commandLock.unlock() }
 
         let existing = Set(try listSessions().map(\.id))
+            .union(try artifactStore.existingSessionIDs())
         let requestedName = preferredName
             ?? (launchProfile == .shell
                 ? nil
                 : launchProfile.rawValue)
         let baseName = Self.sanitizedName(requestedName)
-        var candidate = Self.sessionPrefix + baseName
-        var suffix = 2
-        while existing.contains(candidate) {
-            candidate = Self.sessionPrefix + baseName + "-\(suffix)"
-            suffix += 1
+        let displayName = Self.creationDisplayName(requestedName)
+        var createdResources:
+            TerminalArtifactStore.SessionResources?
+        let candidate = try Self.reserveSessionID(
+            baseName: baseName,
+            existingIDs: existing
+        ) { candidate in
+            let resources = try artifactStore.prepareSession(
+                sessionID: candidate
+            )
+            do {
+                _ = try run([
+                    "new-session",
+                    "-d",
+                    "-s",
+                    candidate,
+                    "-c",
+                    workingDirectory?.path ?? resources.root.path,
+                    "-e",
+                    "RELAND_ARTIFACTS_DIR="
+                        + resources.artifacts.path,
+                    "-e",
+                    "RELAND_INSTRUCTIONS_DIR="
+                        + resources.instructions.path,
+                    "-e",
+                    "PATH=\(resources.bin.path):\(Self.basePath)",
+                ])
+                createdResources = resources
+                return true
+            } catch let error as TerminalServiceError {
+                guard error.isDuplicateSession else {
+                    throw error
+                }
+                return false
+            }
         }
-
-        let resources = try artifactStore.prepareSession(
-            sessionID: candidate
-        )
-        _ = try run([
-            "new-session",
-            "-d",
-            "-s",
-            candidate,
-            "-c",
-            workingDirectory?.path ?? resources.root.path,
-            "-e",
-            "RELAND_ARTIFACTS_DIR=\(resources.artifacts.path)",
-            "-e",
-            "RELAND_INSTRUCTIONS_DIR="
-                + resources.instructions.path,
-            "-e",
-            "PATH=\(resources.bin.path):\(Self.basePath)",
-        ])
+        guard let resources = createdResources else {
+            throw TerminalServiceError.sessionCreationFailed
+        }
+        if let displayName {
+            _ = try run([
+                "set-option",
+                "-t",
+                candidate,
+                "@reland_name",
+                displayName,
+            ])
+        }
         _ = try? run([
             "set-window-option",
             "-t",
@@ -184,6 +225,30 @@ public final class TmuxTerminalService:
         return session
     }
 
+    static func reserveSessionID(
+        baseName: String,
+        existingIDs: Set<String>,
+        reserve: (String) throws -> Bool
+    ) throws -> String {
+        let normalizedBaseName = baseName.lowercased()
+        var unavailableIDs = Set(
+            existingIDs.map { $0.lowercased() }
+        )
+        for ordinal in 1...maximumSessionReservationAttempts {
+            let candidate = sessionPrefix
+                + normalizedBaseName
+                + (ordinal == 1 ? "" : "-\(ordinal)")
+            guard !unavailableIDs.contains(candidate) else {
+                continue
+            }
+            if try reserve(candidate) {
+                return candidate
+            }
+            unavailableIDs.insert(candidate)
+        }
+        throw TerminalServiceError.sessionCreationFailed
+    }
+
     public func attach(
         attachmentID: UUID,
         sessionID: String,
@@ -195,6 +260,7 @@ public final class TmuxTerminalService:
         let validatedID = try validate(sessionID: sessionID)
         let attachment = TmuxTerminalAttachment(
             tmuxPath: tmuxURL.path,
+            serverArguments: serverArguments,
             attachmentID: attachmentID,
             sessionID: validatedID,
             columns: columns,
@@ -223,10 +289,17 @@ public final class TmuxTerminalService:
         let scriptURL = directory
             .appendingPathComponent(validatedID)
             .appendingPathExtension("command")
+        let command = (
+            [tmuxURL.path]
+                + serverArguments
+                + ["attach-session", "-t", validatedID]
+        )
+        .map(Self.shellQuoted)
+        .joined(separator: " ")
         let script = """
         #!/bin/zsh
         export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        exec "\(tmuxURL.path)" attach-session -t "\(validatedID)"
+        exec \(command)
         """
         try Data(script.utf8).write(
             to: scriptURL,
@@ -238,6 +311,24 @@ public final class TmuxTerminalService:
         guard NSWorkspace.shared.open(scriptURL) else {
             throw TerminalServiceError.unableToOpenTerminal
         }
+    }
+
+    public func renameSession(
+        sessionID: String,
+        name: String
+    ) throws {
+        Self.commandLock.lock()
+        defer { Self.commandLock.unlock() }
+
+        let validatedID = try validate(sessionID: sessionID)
+        let validatedName = try Self.validatedDisplayName(name)
+        _ = try run([
+            "set-option",
+            "-t",
+            validatedID,
+            "@reland_name",
+            validatedName,
+        ])
     }
 
     public func killSession(sessionID: String) throws {
@@ -285,7 +376,7 @@ public final class TmuxTerminalService:
         let standardOutput = Pipe()
         let standardError = Pipe()
         process.executableURL = tmuxURL
-        process.arguments = arguments
+        process.arguments = serverArguments + arguments
         process.standardOutput = standardOutput
         process.standardError = standardError
         process.environment = Self.processEnvironment()
@@ -359,7 +450,53 @@ public final class TmuxTerminalService:
         }
         let value = String(sanitized)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
-        return String((value.isEmpty ? "terminal" : value).prefix(24))
+        let normalized = (value.isEmpty ? "terminal" : value)
+            .lowercased()
+        return String(normalized.prefix(24))
+    }
+
+    private static func creationDisplayName(
+        _ requestedName: String?
+    ) -> String? {
+        guard let requestedName else {
+            return nil
+        }
+        let sanitized = requestedName.unicodeScalars.map { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.newlines.contains(scalar)
+                ? " "
+                : String(scalar)
+        }
+        .joined()
+        .split(whereSeparator: \.isWhitespace)
+        .joined(separator: " ")
+        guard !sanitized.isEmpty else {
+            return nil
+        }
+        return String(
+            sanitized.prefix(
+                ReLandConstants.maximumTerminalNameLength
+            )
+        )
+    }
+
+    private static func validatedDisplayName(
+        _ name: String
+    ) throws -> String {
+        let value = name.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard
+            !value.isEmpty,
+            value.count <= ReLandConstants.maximumTerminalNameLength,
+            value.unicodeScalars.allSatisfy({
+                !CharacterSet.controlCharacters.contains($0)
+                    && !CharacterSet.newlines.contains($0)
+            })
+        else {
+            throw TerminalServiceError.invalidSessionName
+        }
+        return value
     }
 
     private static func shellQuoted(_ value: String) -> String {
@@ -385,10 +522,14 @@ public final class TmuxTerminalService:
     }
 
     private static func displayName(
+        customName: String,
         windowName: String,
         windowCount: Int,
         fallback: String
     ) -> String {
+        if !customName.isEmpty {
+            return customName
+        }
         let genericWindowNames = [
             "bash",
             "fish",
@@ -425,6 +566,7 @@ private final class TmuxTerminalAttachment:
     let sessionID: String
 
     private let tmuxPath: String
+    private let serverArguments: [String]
     private let outputHandler: @Sendable (Data) -> Void
     private let terminationHandler: @Sendable () -> Void
     private let lock = NSLock()
@@ -440,6 +582,7 @@ private final class TmuxTerminalAttachment:
 
     init(
         tmuxPath: String,
+        serverArguments: [String],
         attachmentID: UUID,
         sessionID: String,
         columns: Int,
@@ -448,6 +591,7 @@ private final class TmuxTerminalAttachment:
         terminationHandler: @escaping @Sendable () -> Void
     ) {
         self.tmuxPath = tmuxPath
+        self.serverArguments = serverArguments
         self.attachmentID = attachmentID
         self.sessionID = sessionID
         self.columns = max(20, min(columns, 400))
@@ -465,7 +609,9 @@ private final class TmuxTerminalAttachment:
         environment["HOME"] = NSHomeDirectory()
         process.startProcess(
             executable: tmuxPath,
-            args: ["attach-session", "-t", sessionID],
+            args:
+                serverArguments
+                + ["attach-session", "-t", sessionID],
             environment: environment.map { "\($0.key)=\($0.value)" },
             execName: "tmux",
             currentDirectory: NSHomeDirectory()
@@ -545,6 +691,7 @@ private enum TerminalServiceError: LocalizedError {
     case commandFailed(String)
     case sessionCreationFailed
     case invalidSession
+    case invalidSessionName
     case commandFilePermissionFailed
     case unableToOpenTerminal
 
@@ -558,10 +705,21 @@ private enum TerminalServiceError: LocalizedError {
             "The terminal session could not be created"
         case .invalidSession:
             "The terminal session is invalid or no longer exists"
+        case .invalidSessionName:
+            "Terminal names must be 1–\(ReLandConstants.maximumTerminalNameLength) characters and cannot contain line breaks or control characters"
         case .commandFilePermissionFailed:
             "The Terminal launcher could not be secured"
         case .unableToOpenTerminal:
             "Terminal.app could not be opened"
         }
+    }
+
+    var isDuplicateSession: Bool {
+        guard case let .commandFailed(message) = self else {
+            return false
+        }
+        return message.localizedCaseInsensitiveContains(
+            "duplicate session"
+        )
     }
 }

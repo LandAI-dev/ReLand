@@ -38,8 +38,15 @@ public struct SessionStorageCleaner {
     public func removeStoppedSessions(
         activeSessionIDs: Set<String>
     ) throws -> SessionCleanupSummary {
-        try removeManagedSessions(
-            matching: { !activeSessionIDs.contains($0) }
+        let normalizedActiveSessionIDs = Set(
+            activeSessionIDs.map { $0.lowercased() }
+        )
+        return try removeManagedSessions(
+            matching: {
+                !normalizedActiveSessionIDs.contains(
+                    $0.lowercased()
+                )
+            }
         )
     }
 

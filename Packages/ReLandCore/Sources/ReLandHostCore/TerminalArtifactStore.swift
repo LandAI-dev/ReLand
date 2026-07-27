@@ -34,6 +34,29 @@ final class TerminalArtifactStore: @unchecked Sendable {
             )
     }
 
+    func existingSessionIDs() throws -> Set<String> {
+        guard fileManager.fileExists(atPath: root.path) else {
+            return []
+        }
+        let entries = try fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        return try Set(entries.compactMap { url in
+            let values = try url.resourceValues(
+                forKeys: [.isDirectoryKey]
+            )
+            guard
+                values.isDirectory == true,
+                Self.isManagedSessionID(url.lastPathComponent)
+            else {
+                return nil
+            }
+            return url.lastPathComponent
+        })
+    }
+
     func prepareSession(
         sessionID: String
     ) throws -> SessionResources {
@@ -429,6 +452,18 @@ final class TerminalArtifactStore: @unchecked Sendable {
                     || $0 == "-"
                     || $0 == "_"
             }
+    }
+
+    private static func isManagedSessionID(_ value: String) -> Bool {
+        guard value.hasPrefix("rl-"), value.count > 3 else {
+            return false
+        }
+        return value.allSatisfy {
+            $0.isLetter
+                || $0.isNumber
+                || $0 == "-"
+                || $0 == "_"
+        }
     }
 }
 

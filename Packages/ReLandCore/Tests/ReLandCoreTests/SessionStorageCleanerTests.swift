@@ -51,6 +51,28 @@ final class SessionStorageCleanerTests: XCTestCase {
         XCTAssertEqual(try cleaner.byteCount(), 0)
     }
 
+    func testActiveSessionMatchingIsCaseInsensitive() throws {
+        let root = try makeRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        try makeSession("rl-Project", in: root)
+        let cleaner = SessionStorageCleaner(root: root)
+
+        let summary = try cleaner.removeStoppedSessions(
+            activeSessionIDs: ["rl-project"]
+        )
+
+        XCTAssertEqual(summary.removedSessionCount, 0)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent("rl-Project")
+                    .path
+            )
+        )
+    }
+
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

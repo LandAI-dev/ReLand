@@ -4,12 +4,122 @@ import XCTest
 @testable import ReLandHostCore
 
 final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
+    func testSessionReservationRetriesAfterDuplicateName() throws {
+        var attempts: [String] = []
+
+        let sessionID = try TmuxTerminalService.reserveSessionID(
+            baseName: "terminal",
+            existingIDs: []
+        ) { candidate in
+            attempts.append(candidate)
+            return attempts.count > 1
+        }
+
+        XCTAssertEqual(attempts, ["rl-terminal", "rl-terminal-2"])
+        XCTAssertEqual(sessionID, "rl-terminal-2")
+    }
+
+    func testSessionReservationSkipsRetainedStorageID() throws {
+        var attempts: [String] = []
+
+        let sessionID = try TmuxTerminalService.reserveSessionID(
+            baseName: "terminal",
+            existingIDs: ["rl-terminal"]
+        ) { candidate in
+            attempts.append(candidate)
+            return true
+        }
+
+        XCTAssertEqual(attempts, ["rl-terminal-2"])
+        XCTAssertEqual(sessionID, "rl-terminal-2")
+    }
+
+    func testSessionReservationTreatsIDsCaseInsensitively() throws {
+        var attempts: [String] = []
+
+        let sessionID = try TmuxTerminalService.reserveSessionID(
+            baseName: "Project",
+            existingIDs: ["rl-project"]
+        ) { candidate in
+            attempts.append(candidate)
+            return true
+        }
+
+        XCTAssertEqual(attempts, ["rl-project-2"])
+        XCTAssertEqual(sessionID, "rl-project-2")
+    }
+
+    func testRepeatedDefaultSessionCreationUsesDistinctNames() throws {
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let first = try service.createSession(preferredName: nil)
+        defer {
+            try? service.killSession(sessionID: first.id)
+        }
+        let second = try service.createSession(preferredName: nil)
+        defer {
+            try? service.killSession(sessionID: second.id)
+        }
+
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertTrue(first.id.hasPrefix("rl-terminal"))
+        XCTAssertTrue(second.id.hasPrefix("rl-terminal"))
+    }
+
+    func testRenameSessionPreservesStableSessionID() throws {
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let session = try service.createSession(
+            preferredName: "rename-\(UUID().uuidString.prefix(8))"
+        )
+        defer {
+            try? service.killSession(sessionID: session.id)
+        }
+
+        try service.renameSession(
+            sessionID: session.id,
+            name: "Project API"
+        )
+
+        let renamed = try XCTUnwrap(
+            service.listSessions().first {
+                $0.id == session.id
+            }
+        )
+        XCTAssertEqual(renamed.id, session.id)
+        XCTAssertEqual(renamed.name, "Project API")
+    }
+
+    func testRenameSessionRejectsUnicodeLineSeparators() throws {
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let session = try service.createSession(
+            preferredName: "rename-lines"
+        )
+        defer {
+            try? service.killSession(sessionID: session.id)
+        }
+
+        XCTAssertThrowsError(
+            try service.renameSession(
+                sessionID: session.id,
+                name: "Project\u{2028}API"
+            )
+        )
+    }
+
     func testNewSessionReceivesArtifactEnvironment() throws {
-        let service: TmuxTerminalService
-        do {
-            service = try TmuxTerminalService()
-        } catch {
-            throw XCTSkip("tmux is not installed")
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
         }
 
         let session = try service.createSession(
@@ -55,11 +165,9 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
     }
 
     func testSessionPersistsAcrossRemoteAttachments() throws {
-        let service: TmuxTerminalService
-        do {
-            service = try TmuxTerminalService()
-        } catch {
-            throw XCTSkip("tmux is not installed")
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
         }
 
         let preferredName = "test-\(UUID().uuidString.prefix(8))"
@@ -124,11 +232,9 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
     }
 
     func testSessionUsesApprovedWorkingDirectory() throws {
-        let service: TmuxTerminalService
-        do {
-            service = try TmuxTerminalService()
-        } catch {
-            throw XCTSkip("tmux is not installed")
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
         }
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -181,6 +287,31 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
         )
         wait(for: [output], timeout: 5)
         attachment.close()
+    }
+
+    private func makeService() throws -> (
+        service: TmuxTerminalService,
+        root: URL
+    ) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ReLandTmuxService-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        do {
+            return (
+                try TmuxTerminalService(
+                    artifactRoot: root,
+                    serverName:
+                        "reland-test-"
+                        + UUID().uuidString.lowercased()
+                ),
+                root
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw XCTSkip("tmux is not installed")
+        }
     }
 }
 

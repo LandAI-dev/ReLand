@@ -84,6 +84,30 @@ final class ClientAppModel {
         }
     }
 
+    enum TerminalCreationState: Equatable {
+        case idle
+        case submitting
+        case succeeded
+        case failed(String)
+
+        var isSubmitting: Bool {
+            self == .submitting
+        }
+    }
+
+    private enum PendingWorkingDirectoryPreference {
+        case directory(TerminalWorkingDirectory)
+        case sessionWorkspace
+    }
+
+    private struct PendingTerminalCreationRequest {
+        let requestID: UUID
+        let preferredName: String?
+        let launchProfile: TerminalLaunchProfile
+        let launchArguments: [String]
+        let workingDirectoryPath: String?
+    }
+
     var devices: [RemoteDevice] = []
     var connectionState: ConnectionState = .idle
     var remoteImage: UIImage?
@@ -158,16 +182,22 @@ final class ClientAppModel {
     var savedAILaunchProfiles: [AILaunchProfile] = []
     var terminalSessions: [TerminalSessionInfo] = []
     var attachedTerminalSessionID: String?
+    var isTerminalAttachmentReady = false
+    var terminalCreationState: TerminalCreationState = .idle
     var isTerminalWorkspacePresented = false
     var terminalOutputPreview = ""
     var terminalArtifacts: [TerminalArtifactInfo] = []
+    var terminalArtifactSessionID: String?
     var isLoadingTerminalArtifacts = false
     var terminalArtifactDownloadProgress: Double?
     var terminalArtifactPreview: TerminalArtifactPreview?
+    var terminalColumns = 80
+    var terminalRows = 24
     var remoteFilePath = ""
     var remoteFileParentPath: String?
     var remoteFiles: [RemoteFileEntry] = []
     var remoteFileRootNames: [String: String] = [:]
+    var hasLoadedRemoteFileRoots = false
     var isLoadingRemoteFiles = false
     var remoteFileDownloadProgress: Double?
     var remoteFilePreview: RemoteFilePreview?
@@ -175,12 +205,34 @@ final class ClientAppModel {
     var captureTargets: [RemoteCaptureTargetInfo] = []
     var selectedCaptureTarget: RemoteCaptureTargetInfo?
     var hostPermissionState: HostPermissionState?
+    var negotiatedProtocolVersion: UInt16?
     var isCaptureTargetPickerPresented = false
     var captureTargetRevision = 0
     var isAppMode = false
     var isAppSwitcherVisible = false
     var isTerminalOnlyMode = false
     let isE2EMode: Bool
+
+    var supportsTerminalRename: Bool {
+        guard let negotiatedProtocolVersion else {
+            return false
+        }
+        return negotiatedProtocolVersion
+            >= ReLandConstants.minimumTerminalRenameProtocolVersion
+    }
+
+    private var supportsTerminalCreationCorrelation: Bool {
+        guard let negotiatedProtocolVersion else {
+            return false
+        }
+        return negotiatedProtocolVersion
+            >= ReLandConstants
+                .minimumTerminalCreationCorrelationProtocolVersion
+    }
+
+    var canPerformTerminalActions: Bool {
+        connectionState == .connected && session != nil
+    }
 
     private static let pointerSensitivityKey =
         "reland.pointer-sensitivity"
@@ -195,6 +247,8 @@ final class ClientAppModel {
         "reland.controls.app-switcher-pinned"
     private static let aiLaunchProfilesKey =
         "reland.ai.launch-profiles"
+    private static let terminalWorkingDirectoryHistoryKey =
+        "reland.terminal.working-directory-history"
     private let settings: any SettingsStoring
     private let deviceStore: DeviceStore
     private var activeDevice: RemoteDevice?
@@ -209,8 +263,17 @@ final class ClientAppModel {
     private var captureTargetHistory = CaptureTargetHistory()
     private var cyclingCaptureTargetID: String?
     private var appSwitcherHideTask: Task<Void, Never>?
+    private var pendingTerminalCreationRequestID: UUID?
+    private var pendingTerminalCreationRequest:
+        PendingTerminalCreationRequest?
     private var pendingTerminalCreationExistingIDs:
         Set<String>?
+    private var pendingTerminalCreationWasSent = false
+    private var pendingTerminalCreationIsReconciling = false
+    private var pendingWorkingDirectoryPreference:
+        PendingWorkingDirectoryPreference?
+    private var pendingTerminalAttachmentSessionID: String?
+    private var terminalCreationTimeoutTask: Task<Void, Never>?
     @ObservationIgnored
     private var terminalOutputConsumer: ((Data) -> Void)?
     @ObservationIgnored
@@ -220,6 +283,8 @@ final class ClientAppModel {
         TerminalArtifactDownload?
     @ObservationIgnored
     private var remoteFileDownload: RemoteFileDownload?
+    private var terminalWorkingDirectoryHistory =
+        TerminalWorkingDirectoryHistory()
 
     init(
         settings: any SettingsStoring =
@@ -266,6 +331,20 @@ final class ClientAppModel {
         {
             savedAILaunchProfiles = profiles
         }
+        if let historyData = settings.data(
+            forKey: Self.terminalWorkingDirectoryHistoryKey
+        ) {
+            do {
+                terminalWorkingDirectoryHistory =
+                    try JSONDecoder().decode(
+                        TerminalWorkingDirectoryHistory.self,
+                        from: historyData
+                    )
+            } catch {
+                terminalSecurityNotice =
+                    "ReLand could not load remembered project folders."
+            }
+        }
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         isE2EMode = arguments.contains("--reland-e2e")
@@ -283,7 +362,7 @@ final class ClientAppModel {
                 RemoteDevice(
                     id: "device-list-e2e",
                     hostID: "device-list-e2e-host",
-                    name: "Percy's Very Long MacBook Pro Name",
+                    name: "Example MacBook Pro with a Long Name",
                     address: "100.100.100.100",
                     port: ReLandConstants.defaultPort,
                     credentialID: "device-list-e2e"
@@ -397,6 +476,60 @@ final class ClientAppModel {
         savedAILaunchProfiles.filter { $0.tool == tool }
     }
 
+    func preferredTerminalWorkingDirectory()
+        -> TerminalWorkingDirectory?
+    {
+        guard let hostID = activeDevice?.hostID else {
+            return nil
+        }
+        return terminalWorkingDirectoryHistory.preferredDirectory(
+            for: hostID
+        )
+    }
+
+    func recentTerminalWorkingDirectories()
+        -> [TerminalWorkingDirectory]
+    {
+        guard
+            hasLoadedRemoteFileRoots,
+            let hostID = activeDevice?.hostID
+        else {
+            return []
+        }
+        return terminalWorkingDirectoryHistory.recentDirectories(
+            for: hostID
+        )
+    }
+
+    func rememberTerminalWorkingDirectory(
+        path: String,
+        name: String
+    ) throws {
+        guard let hostID = activeDevice?.hostID else {
+            throw ClientModelError.notConnected
+        }
+        var updatedHistory = terminalWorkingDirectoryHistory
+        updatedHistory.remember(
+            TerminalWorkingDirectory(
+                path: path,
+                name: name
+            ),
+            for: hostID
+        )
+        try persistTerminalWorkingDirectoryHistory(updatedHistory)
+        terminalWorkingDirectoryHistory = updatedHistory
+    }
+
+    func preferTerminalSessionWorkspace() throws {
+        guard let hostID = activeDevice?.hostID else {
+            throw ClientModelError.notConnected
+        }
+        var updatedHistory = terminalWorkingDirectoryHistory
+        updatedHistory.preferSessionWorkspace(for: hostID)
+        try persistTerminalWorkingDirectoryHistory(updatedHistory)
+        terminalWorkingDirectoryHistory = updatedHistory
+    }
+
     func preparePairing(payload: String) {
         let candidate = payload
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -483,6 +616,18 @@ final class ClientAppModel {
         frameCount = 0
         terminalSessions = []
         attachedTerminalSessionID = nil
+        pendingTerminalAttachmentSessionID = nil
+        isTerminalAttachmentReady = false
+        pendingTerminalCreationRequestID = nil
+        pendingTerminalCreationRequest = nil
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        pendingWorkingDirectoryPreference = nil
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = nil
+        terminalCreationState = .idle
+        negotiatedProtocolVersion = nil
         resetTerminalArtifacts()
         resetRemoteFiles()
         captureTargets = []
@@ -593,6 +738,13 @@ final class ClientAppModel {
         send(.text("__RELAND_DISCONNECT__"))
     }
 
+    func requestE2EDelayedDisconnect() {
+        guard isE2EMode else {
+            return
+        }
+        send(.text("__RELAND_DELAYED_DISCONNECT__"))
+    }
+
     func openTerminalWorkspace() {
         isTerminalOnlyMode = false
         presentTerminalWorkspace()
@@ -616,56 +768,367 @@ final class ClientAppModel {
         session?.requestTerminalSessions()
     }
 
+    func prepareTerminalCreation() {
+        guard !terminalCreationState.isSubmitting else {
+            return
+        }
+        pendingTerminalCreationRequest = nil
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        pendingWorkingDirectoryPreference = nil
+        terminalCreationState = .idle
+    }
+
+    func clearTerminalCreationResult() {
+        guard !terminalCreationState.isSubmitting else {
+            return
+        }
+        pendingTerminalCreationRequest = nil
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        pendingWorkingDirectoryPreference = nil
+        terminalCreationState = .idle
+    }
+
     func createTerminalSession(
         preferredName: String? = nil,
         launchProfile: TerminalLaunchProfile = .shell,
         launchArguments: [String] = [],
-        workingDirectoryPath: String? = nil
+        workingDirectoryPath: String? = nil,
+        workingDirectoryName: String? = nil
     ) {
-        pendingTerminalCreationExistingIDs =
-            launchProfile == .shell
-            ? nil
-            : Set(terminalSessions.map(\.id))
-        session?.createTerminalSession(
-            preferredName: preferredName,
-            launchProfile: launchProfile,
-            launchArguments: launchArguments,
-            workingDirectoryPath: workingDirectoryPath
+        guard
+            connectionState == .connected,
+            let activeSession = session
+        else {
+            terminalCreationState = .failed(
+                "Reconnect to the Mac before creating a terminal."
+            )
+            return
+        }
+
+        if let workingDirectoryPath {
+            pendingWorkingDirectoryPreference = .directory(
+                TerminalWorkingDirectory(
+                    path: workingDirectoryPath,
+                    name: workingDirectoryName
+                        ?? workingDirectoryPath
+                )
+            )
+        } else {
+            pendingWorkingDirectoryPreference =
+                .sessionWorkspace
+        }
+        let requestID = UUID()
+        pendingTerminalCreationRequestID = requestID
+        pendingTerminalCreationRequest =
+            PendingTerminalCreationRequest(
+                requestID: requestID,
+                preferredName: preferredName,
+                launchProfile: launchProfile,
+                launchArguments: launchArguments,
+                workingDirectoryPath: workingDirectoryPath
+            )
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        terminalCreationState = .submitting
+        startTerminalCreationTimeout(requestID: requestID)
+        activeSession.requestTerminalSessions()
+    }
+
+    private func sendPendingTerminalCreation() {
+        guard
+            terminalCreationState.isSubmitting,
+            let request = pendingTerminalCreationRequest,
+            let activeSession = session
+        else {
+            return
+        }
+        pendingTerminalCreationWasSent = true
+        activeSession.createTerminalSession(
+            requestID: request.requestID,
+            preferredName: request.preferredName,
+            launchProfile: request.launchProfile,
+            launchArguments: request.launchArguments,
+            workingDirectoryPath: request.workingDirectoryPath
+        ) { [weak self, weak activeSession] result in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === activeSession,
+                    self.pendingTerminalCreationRequestID
+                        == request.requestID
+                else {
+                    return
+                }
+                if case let .failure(error) = result {
+                    self.failTerminalCreation(
+                        message: error.localizedDescription,
+                        requestID: request.requestID
+                    )
+                }
+            }
+        }
+    }
+
+    private func startTerminalCreationTimeout(requestID: UUID) {
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
+            guard let self else {
+                return
+            }
+            if self.pendingTerminalCreationWasSent {
+                self.beginTerminalCreationReconciliation(
+                    requestID: requestID
+                )
+            } else {
+                self.failTerminalCreation(
+                    message:
+                        "The Mac did not prepare terminal creation. "
+                        + "Check the connection and try again.",
+                    requestID: requestID
+                )
+            }
+        }
+    }
+
+    private func beginTerminalCreationReconciliation(
+        requestID: UUID
+    ) {
+        guard
+            terminalCreationState.isSubmitting,
+            pendingTerminalCreationRequestID == requestID
+        else {
+            return
+        }
+        pendingTerminalCreationIsReconciling = true
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
+            guard let self else {
+                return
+            }
+            failTerminalCreation(
+                message:
+                    "The Mac did not confirm terminal creation. "
+                    + "Refresh the terminal list before retrying.",
+                requestID: requestID
+            )
+        }
+        session?.requestTerminalSessions()
+    }
+
+    private func preserveTerminalCreationForReconnect() {
+        guard terminalCreationState.isSubmitting else {
+            return
+        }
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = nil
+        pendingTerminalCreationIsReconciling =
+            pendingTerminalCreationWasSent
+    }
+
+    private func completeTerminalCreation(
+        with sessionInfo: TerminalSessionInfo,
+        requestID: UUID
+    ) {
+        guard
+            terminalCreationState.isSubmitting,
+            pendingTerminalCreationRequestID == requestID
+        else {
+            return
+        }
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = nil
+        pendingTerminalCreationRequestID = nil
+        pendingTerminalCreationRequest = nil
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        commitPendingWorkingDirectoryPreference()
+        terminalCreationState = .succeeded
+        attachTerminal(sessionInfo)
+    }
+
+    private func failTerminalCreation(
+        message: String,
+        requestID: UUID? = nil
+    ) {
+        guard terminalCreationState.isSubmitting else {
+            return
+        }
+        if let requestID,
+           pendingTerminalCreationRequestID != requestID
+        {
+            return
+        }
+        terminalCreationTimeoutTask?.cancel()
+        terminalCreationTimeoutTask = nil
+        pendingTerminalCreationRequestID = nil
+        pendingTerminalCreationRequest = nil
+        pendingTerminalCreationExistingIDs = nil
+        pendingTerminalCreationWasSent = false
+        pendingTerminalCreationIsReconciling = false
+        pendingWorkingDirectoryPreference = nil
+        terminalCreationState = .failed(message)
+    }
+
+    private func commitPendingWorkingDirectoryPreference() {
+        guard let preference = pendingWorkingDirectoryPreference else {
+            return
+        }
+        pendingWorkingDirectoryPreference = nil
+        do {
+            switch preference {
+            case let .directory(directory):
+                try rememberTerminalWorkingDirectory(
+                    path: directory.path,
+                    name: directory.name
+                )
+            case .sessionWorkspace:
+                try preferTerminalSessionWorkspace()
+            }
+        } catch {
+            terminalSecurityNotice =
+                "The terminal was created, but ReLand could not "
+                + "remember its working folder."
+        }
+    }
+
+    private func requestPendingTerminalAttachment() {
+        guard
+            connectionState == .connected,
+            let session,
+            let sessionID = pendingTerminalAttachmentSessionID
+        else {
+            return
+        }
+        session.attachTerminal(
+            sessionID: sessionID,
+            columns: terminalColumns,
+            rows: terminalRows
         )
     }
 
+    @discardableResult
     func attachTerminal(
         _ sessionInfo: TerminalSessionInfo,
         columns: Int = 80,
         rows: Int = 24
-    ) {
+    ) -> Bool {
+        guard
+            connectionState == .connected,
+            let session
+        else {
+            alertMessage =
+                "Reconnect to the Mac before opening a terminal."
+            return false
+        }
+        terminalColumns = max(1, columns)
+        terminalRows = max(1, rows)
         pendingTerminalOutput.removeAll()
         terminalOutputPreview = ""
         resetTerminalArtifacts()
-        session?.attachTerminal(
+        pendingTerminalAttachmentSessionID = sessionInfo.id
+        isTerminalAttachmentReady = false
+        session.attachTerminal(
             sessionID: sessionInfo.id,
-            columns: columns,
-            rows: rows
+            columns: terminalColumns,
+            rows: terminalRows
         )
+        return true
     }
 
     func detachTerminal() {
         session?.detachTerminal()
+        pendingTerminalAttachmentSessionID = nil
         attachedTerminalSessionID = nil
+        isTerminalAttachmentReady = false
         terminalOutputConsumer = nil
         pendingTerminalOutput.removeAll()
         resetTerminalArtifacts()
     }
 
-    func openTerminalOnMac(_ sessionInfo: TerminalSessionInfo) {
-        session?.openTerminalOnMac(sessionID: sessionInfo.id)
+    @discardableResult
+    func openTerminalOnMac(
+        _ sessionInfo: TerminalSessionInfo
+    ) -> Bool {
+        guard canPerformTerminalActions, let session else {
+            terminalSecurityNotice =
+                "Reconnect to the Mac before opening this terminal."
+            return false
+        }
+        session.openTerminalOnMac(sessionID: sessionInfo.id)
+        return true
     }
 
-    func killTerminal(_ sessionInfo: TerminalSessionInfo) {
-        session?.killTerminalSession(sessionID: sessionInfo.id)
+    func renameTerminal(
+        _ sessionInfo: TerminalSessionInfo,
+        name: String
+    ) {
+        guard
+            connectionState == .connected,
+            supportsTerminalRename,
+            let session
+        else {
+            terminalSecurityNotice =
+                connectionState == .connected
+                ? "Update ReLand Host to rename terminals."
+                : "Reconnect to the Mac before renaming this terminal."
+            return
+        }
+        let trimmedName = name.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard
+            !trimmedName.isEmpty,
+            trimmedName.count
+                <= ReLandConstants.maximumTerminalNameLength
+        else {
+            terminalSecurityNotice =
+                "Terminal names must be 1–"
+                + "\(ReLandConstants.maximumTerminalNameLength) "
+                + "characters."
+            return
+        }
+        session.renameTerminalSession(
+            sessionID: sessionInfo.id,
+            name: trimmedName
+        )
+    }
+
+    @discardableResult
+    func killTerminal(
+        _ sessionInfo: TerminalSessionInfo
+    ) -> Bool {
+        guard canPerformTerminalActions, let session else {
+            terminalSecurityNotice =
+                "Reconnect to the Mac before stopping this terminal."
+            return false
+        }
+        session.killTerminalSession(sessionID: sessionInfo.id)
+        return true
     }
 
     func sendTerminalInput(_ data: Data) {
+        guard
+            connectionState == .connected,
+            isTerminalAttachmentReady
+        else {
+            return
+        }
         session?.sendTerminalInput(data)
     }
 
@@ -731,19 +1194,40 @@ final class ClientAppModel {
     }
 
     func resizeTerminal(columns: Int, rows: Int) {
-        session?.resizeTerminal(columns: columns, rows: rows)
+        guard columns > 0, rows > 0 else {
+            return
+        }
+        terminalColumns = columns
+        terminalRows = rows
+        session?.resizeTerminal(
+            columns: terminalColumns,
+            rows: terminalRows
+        )
     }
 
-    func requestTerminalArtifacts(sessionID: String) {
-        guard let session else {
+    func prepareTerminalArtifacts(sessionID: String) {
+        guard terminalArtifactSessionID != sessionID else {
+            return
+        }
+        resetTerminalArtifacts()
+        terminalArtifactSessionID = sessionID
+    }
+
+    @discardableResult
+    func requestTerminalArtifacts(
+        sessionID: String
+    ) -> Bool {
+        prepareTerminalArtifacts(sessionID: sessionID)
+        guard canPerformTerminalActions, let session else {
             isLoadingTerminalArtifacts = false
             alertMessage =
                 TerminalArtifactDownloadError.notConnected
                     .localizedDescription
-            return
+            return false
         }
         isLoadingTerminalArtifacts = true
         session.requestTerminalArtifacts(sessionID: sessionID)
+        return true
     }
 
     func downloadTerminalArtifact(
@@ -776,8 +1260,10 @@ final class ClientAppModel {
     }
 
     func openRemoteFileBrowser() {
+        guard requestRemoteFiles(path: "") else {
+            return
+        }
         isRemoteFileBrowserPresented = true
-        requestRemoteFiles(path: "")
     }
 
     func openCaptureTargetPicker() {
@@ -845,16 +1331,25 @@ final class ClientAppModel {
         remoteFilePreview = nil
     }
 
-    func requestRemoteFiles(path: String) {
-        guard let session else {
+    @discardableResult
+    func requestRemoteFiles(path: String) -> Bool {
+        if path.isEmpty {
+            remoteFilePath = ""
+            remoteFileParentPath = nil
+            remoteFiles = []
+            remoteFileRootNames = [:]
+            hasLoadedRemoteFileRoots = false
+        }
+        guard canPerformTerminalActions, let session else {
             isLoadingRemoteFiles = false
             alertMessage =
                 RemoteFileDownloadError.notConnected
                     .localizedDescription
-            return
+            return false
         }
         isLoadingRemoteFiles = true
         session.requestFiles(path: path)
+        return true
     }
 
     func openRemoteFile(_ entry: RemoteFileEntry) {
@@ -950,11 +1445,50 @@ final class ClientAppModel {
                     self.reconnectTask?.cancel()
                     self.reconnectTask = nil
                     self.manualDisconnect = true
+                    self.failTerminalCreation(message: error.message)
                     self.alertMessage = error.message
                 default:
-                    self.pendingTerminalCreationExistingIDs = nil
-                    self.alertMessage = error.message
+                    if
+                        error.requestKind == .terminalCreateRequest,
+                        let requestID =
+                            self.pendingTerminalCreationRequestID,
+                        error.requestID == requestID
+                    {
+                        self.failTerminalCreation(
+                            message: error.message,
+                            requestID: requestID
+                        )
+                    } else if
+                        error.requestKind == .terminalAttachRequest,
+                        self.pendingTerminalAttachmentSessionID != nil
+                    {
+                        self.pendingTerminalAttachmentSessionID = nil
+                        self.attachedTerminalSessionID = nil
+                        self.isTerminalAttachmentReady = false
+                        self.alertMessage = error.message
+                    } else if
+                        self.isLegacyTerminalCreationError(error)
+                    {
+                        self.failTerminalCreation(
+                            message: error.message
+                        )
+                    } else {
+                        self.alertMessage = error.message
+                    }
                 }
+            }
+        }
+        clientSession.onSessionReady = {
+            [weak self, weak clientSession] ready in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.negotiatedProtocolVersion =
+                    ready.protocolVersion
             }
         }
         clientSession.onDisplayInformation = { [weak self] information in
@@ -1004,45 +1538,118 @@ final class ClientAppModel {
                 }
             }
         }
-        clientSession.onTerminalSessions = { [weak self] sessions in
-            Task { @MainActor in
-                guard let self else {
-                    return
-                }
-                self.terminalSessions = sessions
-                if
-                    let existing =
-                        self.pendingTerminalCreationExistingIDs,
-                    let created = sessions.first(where: {
-                        !existing.contains($0.id)
-                    })
-                {
-                    self.pendingTerminalCreationExistingIDs = nil
-                    self.attachTerminal(created)
-                }
-            }
-        }
-        clientSession.onTerminalAttached = { [weak self] attached in
-            Task { @MainActor in
-                self?.attachedTerminalSessionID = attached.sessionID
-            }
-        }
-        clientSession.onTerminalOutput = { [weak self] data in
-            Task { @MainActor in
-                self?.receiveTerminalOutput(data)
-            }
-        }
-        clientSession.onTerminalDetached = { [weak self] in
-            Task { @MainActor in
-                self?.attachedTerminalSessionID = nil
-            }
-        }
-        clientSession.onTerminalArtifacts = { [weak self] response in
+        clientSession.onTerminalSessionList = {
+            [weak self, weak clientSession] list in
             Task { @MainActor in
                 guard
                     let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.terminalSessions = list.sessions
+                guard
+                    self.terminalCreationState.isSubmitting,
+                    let requestID =
+                        self.pendingTerminalCreationRequestID
+                else {
+                    return
+                }
+                if
+                    self.pendingTerminalCreationExistingIDs == nil
+                {
+                    self.pendingTerminalCreationExistingIDs =
+                        Set(list.sessions.map(\.id))
+                    self.pendingTerminalCreationIsReconciling = false
+                    self.sendPendingTerminalCreation()
+                    return
+                }
+                guard
+                    let existingSessionIDs =
+                        self.pendingTerminalCreationExistingIDs
+                else {
+                    return
+                }
+                switch list.creationMatch(
+                    requestID: requestID,
+                    existingSessionIDs: existingSessionIDs,
+                    allowsLegacyFallback:
+                        self.pendingTerminalCreationIsReconciling
+                        || !self.supportsTerminalCreationCorrelation
+                ) {
+                case let .created(created):
+                    self.completeTerminalCreation(
+                        with: created,
+                        requestID: requestID
+                    )
+                case .invalidResponse:
+                    self.failTerminalCreation(
+                        message:
+                            "The Mac created the terminal but did "
+                            + "not return its session details.",
+                        requestID: requestID
+                    )
+                case .ambiguous:
+                    self.failTerminalCreation(
+                        message:
+                            "Multiple terminals appeared while creating "
+                            + "this session. Refresh and choose the "
+                            + "terminal you want.",
+                        requestID: requestID
+                    )
+                case .pending:
+                    break
+                }
+            }
+        }
+        clientSession.onTerminalAttached = {
+            [weak self, weak clientSession] attached in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.pendingTerminalAttachmentSessionID = nil
+                self.attachedTerminalSessionID = attached.sessionID
+                self.isTerminalAttachmentReady = true
+            }
+        }
+        clientSession.onTerminalOutput = {
+            [weak self, weak clientSession] data in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.receiveTerminalOutput(data)
+            }
+        }
+        clientSession.onTerminalDetached = {
+            [weak self, weak clientSession] in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.pendingTerminalAttachmentSessionID = nil
+                self.attachedTerminalSessionID = nil
+                self.isTerminalAttachmentReady = false
+            }
+        }
+        clientSession.onTerminalArtifacts = {
+            [weak self, weak clientSession] response in
+            Task { @MainActor in
+                guard
+                    let self,
+                    self.session === clientSession,
                     response.sessionID
-                        == self.attachedTerminalSessionID
+                        == self.terminalArtifactSessionID
                 else {
                     return
                 }
@@ -1050,14 +1657,25 @@ final class ClientAppModel {
                 self.isLoadingTerminalArtifacts = false
             }
         }
-        clientSession.onTerminalArtifactChunk = { [weak self] chunk in
+        clientSession.onTerminalArtifactChunk = {
+            [weak self, weak clientSession] chunk in
             Task { @MainActor in
-                self?.receiveTerminalArtifactChunk(chunk)
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.receiveTerminalArtifactChunk(chunk)
             }
         }
-        clientSession.onFiles = { [weak self] response in
+        clientSession.onFiles = {
+            [weak self, weak clientSession] response in
             Task { @MainActor in
-                guard let self else {
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
                     return
                 }
                 self.remoteFilePath = response.path
@@ -1069,13 +1687,22 @@ final class ClientAppModel {
                             ($0.path, $0.name)
                         }
                     )
+                    self.reconcileTerminalWorkingDirectoryHistory()
+                    self.hasLoadedRemoteFileRoots = true
                 }
                 self.isLoadingRemoteFiles = false
             }
         }
-        clientSession.onFileChunk = { [weak self] chunk in
+        clientSession.onFileChunk = {
+            [weak self, weak clientSession] chunk in
             Task { @MainActor in
-                self?.receiveRemoteFileChunk(chunk)
+                guard
+                    let self,
+                    self.session === clientSession
+                else {
+                    return
+                }
+                self.receiveRemoteFileChunk(chunk)
             }
         }
         clientSession.onCaptureTargets = { [weak self] response in
@@ -1177,6 +1804,28 @@ final class ClientAppModel {
         }
     }
 
+    private func isLegacyTerminalCreationError(
+        _ error: RemoteErrorMessage
+    ) -> Bool {
+        guard
+            terminalCreationState.isSubmitting,
+            negotiatedProtocolVersion.map({
+                $0 < ReLandConstants
+                    .minimumTerminalCreationCorrelationProtocolVersion
+            }) == true,
+            error.requestKind == nil,
+            error.requestID == nil
+        else {
+            return false
+        }
+        switch error.code {
+        case .terminalUnavailable, .internalError:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func handle(_ state: RemoteClientSession.State) {
         switch state {
         case .idle:
@@ -1192,6 +1841,22 @@ final class ClientAppModel {
             reconnectTask = nil
             isControllerTakeoverConfirmationPresented = false
             connectionState = .connected
+            requestPendingTerminalAttachment()
+            if
+                terminalCreationState.isSubmitting,
+                let requestID = pendingTerminalCreationRequestID
+            {
+                if pendingTerminalCreationWasSent {
+                    beginTerminalCreationReconciliation(
+                        requestID: requestID
+                    )
+                } else {
+                    startTerminalCreationTimeout(
+                        requestID: requestID
+                    )
+                    requestTerminalSessions()
+                }
+            }
             if openTerminalAfterConnect {
                 openTerminalAfterConnect = false
                 presentTerminalWorkspace()
@@ -1205,10 +1870,19 @@ final class ClientAppModel {
             }
         case .waiting:
             connectionState = .reconnecting
+            negotiatedProtocolVersion = nil
+            preserveTerminalAttachmentForReconnect()
+            preserveTerminalCreationForReconnect()
         case let .failed(message):
             connectionState = .failed(message)
+            negotiatedProtocolVersion = nil
+            preserveTerminalAttachmentForReconnect()
+            preserveTerminalCreationForReconnect()
             scheduleReconnect()
         case .disconnected:
+            negotiatedProtocolVersion = nil
+            preserveTerminalAttachmentForReconnect()
+            preserveTerminalCreationForReconnect()
             if manualDisconnect {
                 connectionState = .idle
             } else if activeDevice != nil {
@@ -1216,6 +1890,15 @@ final class ClientAppModel {
                 scheduleReconnect()
             }
         }
+    }
+
+    private func preserveTerminalAttachmentForReconnect() {
+        guard let attachedTerminalSessionID else {
+            return
+        }
+        pendingTerminalAttachmentSessionID =
+            attachedTerminalSessionID
+        isTerminalAttachmentReady = false
     }
 
     private func scheduleReconnect() {
@@ -1504,6 +2187,7 @@ final class ClientAppModel {
 
     private func resetTerminalArtifacts() {
         cancelTerminalArtifactDownload()
+        terminalArtifactSessionID = nil
         terminalArtifacts = []
         isLoadingTerminalArtifacts = false
         terminalArtifactPreview = nil
@@ -1644,6 +2328,7 @@ final class ClientAppModel {
         remoteFileParentPath = nil
         remoteFiles = []
         remoteFileRootNames = [:]
+        hasLoadedRemoteFileRoots = false
         isLoadingRemoteFiles = false
         remoteFilePreview = nil
         isRemoteFileBrowserPresented = false
@@ -1665,6 +2350,58 @@ final class ClientAppModel {
             try JSONEncoder().encode(savedAILaunchProfiles),
             forKey: Self.aiLaunchProfilesKey
         )
+    }
+
+    private func persistTerminalWorkingDirectoryHistory(
+        _ history: TerminalWorkingDirectoryHistory
+    ) throws {
+        settings.set(
+            try JSONEncoder().encode(history),
+            forKey: Self.terminalWorkingDirectoryHistoryKey
+        )
+    }
+
+    private func reconcileTerminalWorkingDirectoryHistory() {
+        guard let hostID = activeDevice?.hostID else {
+            return
+        }
+        let approvedRoots = Set(remoteFileRootNames.keys)
+        var updatedHistory = terminalWorkingDirectoryHistory
+        updatedHistory.retainDirectories(for: hostID) {
+            directory in
+            guard
+                let rootPath = Self.remoteFileRootPath(
+                    for: directory.path
+                )
+            else {
+                return false
+            }
+            return approvedRoots.contains(rootPath)
+        }
+        guard updatedHistory != terminalWorkingDirectoryHistory else {
+            return
+        }
+        terminalWorkingDirectoryHistory = updatedHistory
+        do {
+            try persistTerminalWorkingDirectoryHistory(
+                updatedHistory
+            )
+        } catch {
+            terminalSecurityNotice =
+                "ReLand could not update remembered project folders."
+        }
+    }
+
+    private static func remoteFileRootPath(
+        for path: String
+    ) -> String? {
+        guard path.hasPrefix("@") else {
+            return nil
+        }
+        guard let separator = path.firstIndex(of: "/") else {
+            return path
+        }
+        return String(path[..<separator])
     }
 
     private static func directoryByteCount(
@@ -1724,6 +2461,7 @@ private enum ClientModelError: LocalizedError {
     case untrustedNetworkAddress
     case cacheUnavailable
     case invalidAILaunchProfile
+    case notConnected
 
     var errorDescription: String? {
         switch self {
@@ -1735,6 +2473,8 @@ private enum ClientModelError: LocalizedError {
             "ReLand could not inspect its download cache."
         case .invalidAILaunchProfile:
             "Enter a name for a ReLand AI launch profile."
+        case .notConnected:
+            "Reconnect to the Mac before changing terminal settings."
         }
     }
 }

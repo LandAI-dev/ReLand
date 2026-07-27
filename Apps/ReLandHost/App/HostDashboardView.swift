@@ -142,9 +142,9 @@ struct HostDashboardView: View {
 
     private var fileAccessCard: some View {
         HostCard(
-            title: "Phone file access",
+            title: "Approved folders",
             subtitle:
-                "Read-only access to ReLand storage and approved folders."
+                "Approve once for file browsing and terminal working folders."
         ) {
             HStack(spacing: 12) {
                 Image(systemName: "folder.badge.gearshape")
@@ -185,9 +185,18 @@ struct HostDashboardView: View {
             }
 
             Divider()
+            Label(
+                "Phone file browsing is read-only. Terminal and AI "
+                    + "commands can modify files in their working folder.",
+                systemImage: "terminal"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Divider()
             HStack {
                 Label(
-                    "Hidden files and symlinks are never exposed.",
+                    "The phone file browser hides hidden files and symlinks.",
                     systemImage: "lock.shield"
                 )
                 .font(.caption)
@@ -196,7 +205,7 @@ struct HostDashboardView: View {
                 Button {
                     model.addSharedFolder()
                 } label: {
-                    Label("Add Folder", systemImage: "plus")
+                    Label("Approve Folder", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
             }

@@ -404,7 +404,12 @@ final class HostAppModel {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Allow Read-Only Access"
+        panel.title = "Approve Folder for ReLand"
+        panel.message =
+            "Approve a parent folder once. ReLand will reuse this "
+            + "access for file browsing and terminal working folders "
+            + "until you remove it."
+        panel.prompt = "Approve Folder"
         guard panel.runModal() == .OK, let url = panel.url else {
             return
         }

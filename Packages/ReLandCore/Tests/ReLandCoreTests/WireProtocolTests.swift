@@ -86,7 +86,9 @@ struct WireProtocolTests {
         )
 
         #expect(decoded == chunk)
-        #expect(ReLandConstants.protocolVersion == 7)
+        #expect(ReLandConstants.protocolVersion == 8)
+        #expect(ProtocolVersionRange.current.minimum == 7)
+        #expect(ProtocolVersionRange.current.maximum == 8)
     }
 
     @Test
@@ -207,10 +209,13 @@ struct WireProtocolTests {
 
     @Test
     func structuredRemoteErrorRoundTrips() throws {
+        let requestID = UUID()
         let error = RemoteErrorMessage(
             code: .authenticationFailed,
             message: "Authentication failed",
-            isRecoverable: true
+            isRecoverable: true,
+            requestKind: .terminalCreateRequest,
+            requestID: requestID
         )
 
         let decoded = try WireJSON.decode(
@@ -238,6 +243,156 @@ struct WireProtocolTests {
         )
 
         #expect(decoded.isRecoverable == false)
+        #expect(decoded.requestKind == nil)
+        #expect(decoded.requestID == nil)
+    }
+
+    @Test
+    func terminalSessionListIdentifiesCreatedSession() throws {
+        let requestID = UUID()
+        let session = TerminalSessionInfo(
+            id: "rl-terminal-2",
+            name: "terminal-2",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: nil
+        )
+        let list = TerminalSessionList(
+            sessions: [session],
+            createdSessionID: session.id,
+            createdRequestID: requestID
+        )
+
+        let decoded = try WireJSON.decode(
+            TerminalSessionList.self,
+            from: WireJSON.encode(list)
+        )
+
+        #expect(decoded == list)
+    }
+
+    @Test
+    func legacyTerminalSessionListHasNoCreationContext() throws {
+        let decoded = try WireJSON.decode(
+            TerminalSessionList.self,
+            from: Data(#"{"sessions":[]}"#.utf8)
+        )
+
+        #expect(decoded.sessions.isEmpty)
+        #expect(decoded.createdSessionID == nil)
+        #expect(decoded.createdRequestID == nil)
+    }
+
+    @Test
+    func legacyTerminalCreationMatchesSingleNewSession() {
+        let requestID = UUID()
+        let existing = TerminalSessionInfo(
+            id: "rl-existing",
+            name: "existing",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: nil
+        )
+        let created = TerminalSessionInfo(
+            id: "rl-created",
+            name: "created",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: nil
+        )
+        let list = TerminalSessionList(
+            sessions: [existing, created]
+        )
+
+        #expect(
+            list.creationMatch(
+                requestID: requestID,
+                existingSessionIDs: [existing.id]
+            ) == .created(created)
+        )
+    }
+
+    @Test
+    func legacyTerminalCreationUsesRefreshedHostBaseline() {
+        let requestID = UUID()
+        let stale = TerminalSessionInfo(
+            id: "rl-stale",
+            name: "stale",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: nil
+        )
+        let created = TerminalSessionInfo(
+            id: "rl-created",
+            name: "created",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: nil
+        )
+        let list = TerminalSessionList(
+            sessions: [stale, created]
+        )
+
+        #expect(
+            list.creationMatch(
+                requestID: requestID,
+                existingSessionIDs: [stale.id]
+            ) == .created(created)
+        )
+    }
+
+    @Test
+    func correlatedCreationDoesNotUseLegacyFallback() {
+        let requestID = UUID()
+        let list = TerminalSessionList(
+            sessions: [
+                TerminalSessionInfo(
+                    id: "rl-created",
+                    name: "created",
+                    windowCount: 1,
+                    attachedClientCount: 0,
+                    createdAt: nil
+                ),
+            ]
+        )
+
+        #expect(
+            list.creationMatch(
+                requestID: requestID,
+                existingSessionIDs: [],
+                allowsLegacyFallback: false
+            ) == .pending
+        )
+    }
+
+    @Test
+    func legacyTerminalCreationRejectsAmbiguousNewSessions() {
+        let requestID = UUID()
+        let list = TerminalSessionList(
+            sessions: [
+                TerminalSessionInfo(
+                    id: "rl-created-1",
+                    name: "created-1",
+                    windowCount: 1,
+                    attachedClientCount: 0,
+                    createdAt: nil
+                ),
+                TerminalSessionInfo(
+                    id: "rl-created-2",
+                    name: "created-2",
+                    windowCount: 1,
+                    attachedClientCount: 0,
+                    createdAt: nil
+                ),
+            ]
+        )
+
+        #expect(
+            list.creationMatch(
+                requestID: requestID,
+                existingSessionIDs: []
+            ) == .ambiguous
+        )
     }
 
     @Test
@@ -260,7 +415,9 @@ struct WireProtocolTests {
 
     @Test
     func terminalCreateRequestCarriesApprovedWorkingFolder() throws {
+        let requestID = UUID()
         let request = TerminalCreateRequest(
+            requestID: requestID,
             preferredName: "project",
             launchProfile: .copilot,
             launchArguments: ["--model", "test"],
@@ -273,5 +430,21 @@ struct WireProtocolTests {
         )
 
         #expect(decoded == request)
+    }
+
+    @Test
+    func terminalRenameRequestPreservesStableSessionID() throws {
+        let request = TerminalRenameRequest(
+            sessionID: "rl-terminal-2",
+            name: "Project API"
+        )
+
+        let decoded = try WireJSON.decode(
+            TerminalRenameRequest.self,
+            from: WireJSON.encode(request)
+        )
+
+        #expect(decoded == request)
+        #expect(WireMessageKind.terminalRename.rawValue == 39)
     }
 }

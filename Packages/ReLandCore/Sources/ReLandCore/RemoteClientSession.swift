@@ -18,6 +18,25 @@ public final class RemoteClientSession: @unchecked Sendable {
         case disconnected
     }
 
+    public enum RequestError: LocalizedError, Equatable, Sendable {
+        case notConnected
+        case encodingFailed
+        case transportFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .notConnected:
+                "Reconnect to the Mac before creating a terminal."
+            case .encodingFailed:
+                "The terminal request could not be prepared."
+            case let .transportFailed(message):
+                message.isEmpty
+                    ? "The terminal request could not be sent."
+                    : message
+            }
+        }
+    }
+
     public var onStateChange: (@Sendable (State) -> Void)?
     public var onDisplayInformation: (@Sendable (DisplayInformation) -> Void)?
     public var onFrame: (@Sendable (Data) -> Void)?
@@ -27,6 +46,8 @@ public final class RemoteClientSession: @unchecked Sendable {
         (@Sendable (PairDeviceAccepted, PSKCredential) -> Void)?
     public var onTerminalSessions:
         (@Sendable ([TerminalSessionInfo]) -> Void)?
+    public var onTerminalSessionList:
+        (@Sendable (TerminalSessionList) -> Void)?
     public var onTerminalAttached:
         (@Sendable (TerminalAttached) -> Void)?
     public var onTerminalOutput: (@Sendable (Data) -> Void)?
@@ -155,19 +176,26 @@ public final class RemoteClientSession: @unchecked Sendable {
     }
 
     public func createTerminalSession(
+        requestID: UUID = UUID(),
         preferredName: String? = nil,
         launchProfile: TerminalLaunchProfile = .shell,
         launchArguments: [String] = [],
-        workingDirectoryPath: String? = nil
+        workingDirectoryPath: String? = nil,
+        completion:
+            @escaping @Sendable (Result<Void, RequestError>) -> Void = {
+                _ in
+            }
     ) {
         sendJSON(
             TerminalCreateRequest(
+                requestID: requestID,
                 preferredName: preferredName,
                 launchProfile: launchProfile,
                 launchArguments: launchArguments,
                 workingDirectoryPath: workingDirectoryPath
             ),
-            kind: .terminalCreateRequest
+            kind: .terminalCreateRequest,
+            completion: completion
         )
     }
 
@@ -294,6 +322,19 @@ public final class RemoteClientSession: @unchecked Sendable {
         sendJSON(
             TerminalSessionRequest(sessionID: sessionID),
             kind: .terminalOpenOnMac
+        )
+    }
+
+    public func renameTerminalSession(
+        sessionID: String,
+        name: String
+    ) {
+        sendJSON(
+            TerminalRenameRequest(
+                sessionID: sessionID,
+                name: name
+            ),
+            kind: .terminalRename
         )
     }
 
@@ -434,6 +475,7 @@ public final class RemoteClientSession: @unchecked Sendable {
                     TerminalSessionList.self,
                     from: packet.payload
                 )
+                onTerminalSessionList?(list)
                 onTerminalSessions?(list.sessions)
 
             case .terminalAttached:
@@ -538,6 +580,7 @@ public final class RemoteClientSession: @unchecked Sendable {
                  .terminalResize,
                  .terminalDetach,
                  .terminalOpenOnMac,
+                 .terminalRename,
                  .terminalKill,
                  .terminalArtifactListRequest,
                  .terminalArtifactReadRequest,
@@ -561,19 +604,35 @@ public final class RemoteClientSession: @unchecked Sendable {
 
     private func sendJSON<T: Encodable & Sendable>(
         _ value: T,
-        kind: WireMessageKind
+        kind: WireMessageKind,
+        completion:
+            (@Sendable (Result<Void, RequestError>) -> Void)? = nil
     ) {
         queue.async { [weak self] in
-            guard
-                let self,
-                state == .connected,
-                let payload = try? WireJSON.encode(value)
-            else {
+            guard let self, state == .connected, let connection else {
+                completion?(.failure(.notConnected))
                 return
             }
-            connection?.send(
+            let payload: Data
+            do {
+                payload = try WireJSON.encode(value)
+            } catch {
+                completion?(.failure(.encodingFailed))
+                return
+            }
+            connection.send(
                 WirePacket(kind: kind, payload: payload)
-            )
+            ) { error in
+                if let error {
+                    completion?(
+                        .failure(
+                            .transportFailed(error.localizedDescription)
+                        )
+                    )
+                } else {
+                    completion?(.success(()))
+                }
+            }
         }
     }
 

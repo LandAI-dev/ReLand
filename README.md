@@ -113,7 +113,12 @@ New sessions start in their app-owned session directory instead of the user's
 home folder. This avoids broad folder prompts until the user deliberately
 chooses a project location. **Choose Project Folder** only lists ReLand
 storage and folders explicitly approved in ReLand Host; raw Mac paths are
-never accepted from the phone.
+never accepted from the phone. Folder approval is persisted on the Mac and
+reused until it is removed, while the client remembers recently selected
+projects for each paired Mac.
+
+The phone file browser is read-only. A terminal or AI command started in an
+approved working folder runs as the Mac user and can modify files there.
 
 Use:
 

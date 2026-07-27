@@ -67,6 +67,8 @@ capture contexts are future work.
 ReLand Host manages `rl-*` tmux sessions. Each session receives an app-owned
 workspace with Artifacts, Instructions, and helper binaries. Raw AI commands
 are unmodified; ReLand AI injects tool-specific artifact instructions.
+Internal session IDs are lowercase and are not reused while their retained
+workspace exists, so a new terminal cannot inherit an older session's files.
 
 ## File access
 

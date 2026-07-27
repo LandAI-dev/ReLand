@@ -28,6 +28,7 @@ public protocol RemoteTerminalService: Sendable {
         terminationHandler: @escaping @Sendable () -> Void
     ) throws -> any RemoteTerminalAttachment
     func openOnMac(sessionID: String) throws
+    func renameSession(sessionID: String, name: String) throws
     func killSession(sessionID: String) throws
     func listArtifacts(
         sessionID: String

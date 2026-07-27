@@ -39,6 +39,7 @@ public enum WireMessageKind: UInt8, Codable, Sendable {
     case captureTargetSelected = 36
     case hostStatusRequest = 37
     case hostStatusResponse = 38
+    case terminalRename = 39
 }
 
 public struct WirePacket: Equatable, Sendable {
