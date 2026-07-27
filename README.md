@@ -27,7 +27,7 @@ the gesture guide live under **More**.
 ## Install the public beta
 
 - **iPhone and iPad:** [Join ReLand 1.0 on TestFlight][testflight-beta].
-- **Mac:** [Download the notarized ReLand Host 1.0 Beta 1][host-beta].
+- **Mac:** [Download the notarized ReLand Host 1.0 Beta 2][host-beta].
 
 Install both apps, grant ReLand Host the requested Screen Recording and
 Accessibility permissions, then pair the phone or tablet using the one-time
@@ -156,4 +156,4 @@ components retain their own licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 [testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
-[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.2

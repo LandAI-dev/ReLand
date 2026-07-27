@@ -4,6 +4,19 @@ All notable user-visible changes will be documented here.
 
 ## Unreleased
 
+## 1.0 Beta 2 - 2026-07-26
+
+- Published ReLand 1.0 (5) through TestFlight and the notarized
+  [ReLand Host 1.0 Beta 2][host-beta].
+- Made terminal creation collision-safe without reusing retained session
+  storage.
+- Added approved project-folder history and session workspace selection.
+- Added a labeled terminal More sheet for files, Mac opening, display-name
+  editing, and stopping sessions.
+- Preserved terminal attachments and grid sizing across reconnects.
+- Added protocol 8 terminal creation correlation and rename support while
+  retaining protocol 7 compatibility.
+
 ## 1.0 Beta 1 - 2026-07-25
 
 - Opened the ReLand 1.0 public beta through
@@ -36,4 +49,4 @@ All notable user-visible changes will be documented here.
 - Removed release access to deterministic E2E credentials.
 
 [testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
-[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.2

@@ -2,10 +2,10 @@
 
 ## Current public beta
 
-- **iPhone and iPad:** ReLand 1.0 (4) is available through
+- **iPhone and iPad:** ReLand 1.0 (5) is available through
   [TestFlight][testflight-beta].
 - **Mac companion:** Download the notarized
-  [ReLand Host 1.0 Beta 1][host-beta].
+  [ReLand Host 1.0 Beta 2][host-beta].
 
 Install both apps, open ReLand Host on the Mac, grant the requested macOS
 permissions, and pair the phone or tablet using the one-time QR code. The
@@ -82,4 +82,4 @@ with a protected GitHub environment, narrowly scoped credentials, and an
 updated trusted workflow ruleset.
 
 [testflight-beta]: https://testflight.apple.com/join/vQqhuAdC
-[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.1
+[host-beta]: https://github.com/LandAI-dev/ReLand/releases/tag/v1.0.0-beta.2
