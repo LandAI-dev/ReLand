@@ -55,9 +55,11 @@ public final class TmuxTerminalService:
             output = try run([
                 "list-sessions",
                 "-F",
-                "#{session_name}\t#{session_windows}\t"
-                    + "#{session_attached}\t#{session_created}\t"
-                    + "#{window_name}\t#{@reland_name}",
+                "#{session_name}|#{session_windows}|"
+                    + "#{session_attached}|#{session_created}|"
+                    + "#{?@reland_name,1,0}|"
+                    + "#{?@reland_name,#{@reland_name},"
+                    + "#{window_name}}",
             ])
         } catch let error as TerminalServiceError {
             if case let .commandFailed(message) = error,
@@ -80,14 +82,16 @@ public final class TmuxTerminalService:
             .split(whereSeparator: \.isNewline)
             .compactMap { line in
                 let fields = line.split(
-                    separator: "\t",
+                    separator: "|",
+                    maxSplits: 5,
                     omittingEmptySubsequences: false
                 )
                 guard
                     fields.count == 6,
                     let windows = Int(fields[1]),
                     let attached = Int(fields[2]),
-                    let created = TimeInterval(fields[3])
+                    let created = TimeInterval(fields[3]),
+                    fields[4] == "0" || fields[4] == "1"
                 else {
                     return nil
                 }
@@ -101,8 +105,12 @@ public final class TmuxTerminalService:
                 return TerminalSessionInfo(
                     id: id,
                     name: Self.displayName(
-                        customName: String(fields[5]),
-                        windowName: String(fields[4]),
+                        customName: fields[4] == "1"
+                            ? String(fields[5])
+                            : "",
+                        windowName: fields[4] == "0"
+                            ? String(fields[5])
+                            : "",
                         windowCount: windows,
                         fallback: fallbackName
                     ),

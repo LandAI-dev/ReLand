@@ -84,7 +84,7 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
 
         try service.renameSession(
             sessionID: session.id,
-            name: "Project API"
+            name: "Project|API"
         )
 
         let renamed = try XCTUnwrap(
@@ -93,7 +93,7 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
             }
         )
         XCTAssertEqual(renamed.id, session.id)
-        XCTAssertEqual(renamed.name, "Project API")
+        XCTAssertEqual(renamed.name, "Project|API")
     }
 
     func testRenameSessionRejectsUnicodeLineSeparators() throws {
@@ -113,6 +113,34 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
                 sessionID: session.id,
                 name: "Project\u{2028}API"
             )
+        )
+    }
+
+    func testSessionCreationOutsideTmux() throws {
+        let inheritedTmux = ProcessInfo.processInfo.environment["TMUX"]
+        unsetenv("TMUX")
+        defer {
+            if let inheritedTmux {
+                setenv("TMUX", inheritedTmux, 1)
+            }
+        }
+
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let session = try service.createSession(
+            preferredName: "outside-tmux-\(UUID().uuidString.prefix(8))"
+        )
+        defer {
+            try? service.killSession(sessionID: session.id)
+        }
+
+        XCTAssertTrue(
+            try service.listSessions().contains {
+                $0.id == session.id
+            }
         )
     }
 
