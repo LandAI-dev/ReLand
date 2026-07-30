@@ -84,7 +84,7 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
 
         try service.renameSession(
             sessionID: session.id,
-            name: "Project API"
+            name: "Project|API"
         )
 
         let renamed = try XCTUnwrap(
@@ -93,7 +93,63 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
             }
         )
         XCTAssertEqual(renamed.id, session.id)
-        XCTAssertEqual(renamed.name, "Project API")
+        XCTAssertEqual(renamed.name, "Project|API")
+    }
+
+    func testRenameSessionPreservesZeroDisplayName() throws {
+        let (service, root) = try makeService()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let session = try service.createSession(
+            preferredName: "rename-zero"
+        )
+        defer {
+            try? service.killSession(sessionID: session.id)
+        }
+
+        try service.renameSession(
+            sessionID: session.id,
+            name: "0"
+        )
+
+        let renamed = try XCTUnwrap(
+            service.listSessions().first {
+                $0.id == session.id
+            }
+        )
+        XCTAssertEqual(renamed.name, "0")
+    }
+
+    func testListSessionsRejectsPipeContainingRawSessionName() throws {
+        let serverName =
+            "reland-test-" + UUID().uuidString.lowercased()
+        let (service, root) = try makeService(
+            serverName: serverName
+        )
+        defer {
+            try? runTmux(
+                serverName: serverName,
+                arguments: ["kill-server"]
+            )
+            try? FileManager.default.removeItem(at: root)
+        }
+        let craftedName = "rl-fake|1|0|123|1|Injected"
+        try runTmux(
+            serverName: serverName,
+            arguments: [
+                "new-session",
+                "-d",
+                "-s",
+                craftedName,
+            ]
+        )
+
+        let sessions = try service.listSessions()
+
+        XCTAssertFalse(sessions.contains { $0.id == "rl-fake" })
+        XCTAssertFalse(sessions.contains { $0.id == craftedName })
     }
 
     func testRenameSessionRejectsUnicodeLineSeparators() throws {
@@ -113,6 +169,54 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
                 sessionID: session.id,
                 name: "Project\u{2028}API"
             )
+        )
+    }
+
+    func testSessionCreationIgnoresInjectedTmuxEnvironment() throws {
+        let processTmux = ProcessInfo.processInfo.environment["TMUX"]
+        let processTmuxPane =
+            ProcessInfo.processInfo.environment["TMUX_PANE"]
+        let injectedEnvironment = [
+            "TMUX": "/tmp/other-tmux,123,0",
+            "TMUX_PANE": "%9",
+            "RELAND_TEST_ENV": "retained",
+        ]
+        let commandEnvironment =
+            TmuxTerminalService.processEnvironment(
+                inheriting: injectedEnvironment
+            )
+        XCTAssertNil(commandEnvironment["TMUX"])
+        XCTAssertNil(commandEnvironment["TMUX_PANE"])
+        XCTAssertEqual(
+            commandEnvironment["RELAND_TEST_ENV"],
+            "retained"
+        )
+        let (service, root) = try makeService(
+            environment: injectedEnvironment
+        )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let session = try service.createSession(
+            preferredName: "outside-tmux-\(UUID().uuidString.prefix(8))"
+        )
+        defer {
+            try? service.killSession(sessionID: session.id)
+        }
+
+        XCTAssertTrue(
+            try service.listSessions().contains {
+                $0.id == session.id
+            }
+        )
+        XCTAssertEqual(
+            ProcessInfo.processInfo.environment["TMUX"],
+            processTmux
+        )
+        XCTAssertEqual(
+            ProcessInfo.processInfo.environment["TMUX_PANE"],
+            processTmuxPane
         )
     }
 
@@ -289,7 +393,11 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
         attachment.close()
     }
 
-    private func makeService() throws -> (
+    private func makeService(
+        serverName: String? = nil,
+        environment: [String: String] =
+            ProcessInfo.processInfo.environment
+    ) throws -> (
         service: TmuxTerminalService,
         root: URL
     ) {
@@ -302,15 +410,57 @@ final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
             return (
                 try TmuxTerminalService(
                     artifactRoot: root,
-                    serverName:
-                        "reland-test-"
-                        + UUID().uuidString.lowercased()
+                    serverName: serverName
+                        ?? "reland-test-"
+                            + UUID().uuidString.lowercased(),
+                    environment: environment
                 ),
                 root
             )
         } catch {
             try? FileManager.default.removeItem(at: root)
             throw XCTSkip("tmux is not installed")
+        }
+    }
+
+    private func runTmux(
+        serverName: String,
+        arguments: [String]
+    ) throws {
+        let candidates = [
+            "/opt/homebrew/bin/tmux",
+            "/usr/local/bin/tmux",
+            "/usr/bin/tmux",
+        ]
+        let path = try XCTUnwrap(
+            candidates.first {
+                FileManager.default.isExecutableFile(atPath: $0)
+            }
+        )
+        let process = Process()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["-L", serverName] + arguments
+        process.standardError = standardError
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "TMUX")
+        environment.removeValue(forKey: "TMUX_PANE")
+        process.environment = environment
+        try process.run()
+        let errorData = standardError.fileHandleForReading
+            .readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "TmuxTerminalServiceTests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: String(
+                        decoding: errorData,
+                        as: UTF8.self
+                    )
+                ]
+            )
         }
     }
 }

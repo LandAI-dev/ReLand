@@ -18,6 +18,7 @@ public final class TmuxTerminalService:
     private let tmuxURL: URL
     private let artifactStore: TerminalArtifactStore
     private let serverArguments: [String]
+    private let commandEnvironment: [String: String]
 
     public convenience init() throws {
         try self.init(
@@ -28,7 +29,9 @@ public final class TmuxTerminalService:
 
     init(
         artifactRoot: URL?,
-        serverName: String?
+        serverName: String?,
+        environment: [String: String] =
+            ProcessInfo.processInfo.environment
     ) throws {
         let candidates = [
             "/opt/homebrew/bin/tmux",
@@ -47,6 +50,9 @@ public final class TmuxTerminalService:
         serverArguments = serverName.map {
             ["-L", $0]
         } ?? []
+        commandEnvironment = Self.processEnvironment(
+            inheriting: environment
+        )
     }
 
     public func listSessions() throws -> [TerminalSessionInfo] {
@@ -55,9 +61,7 @@ public final class TmuxTerminalService:
             output = try run([
                 "list-sessions",
                 "-F",
-                "#{session_name}\t#{session_windows}\t"
-                    + "#{session_attached}\t#{session_created}\t"
-                    + "#{window_name}\t#{@reland_name}",
+                "#{session_id}",
             ])
         } catch let error as TerminalServiceError {
             if case let .commandFailed(message) = error,
@@ -76,42 +80,16 @@ public final class TmuxTerminalService:
             throw error
         }
 
-        let sessions: [TerminalSessionInfo] = output
+        let sessionIDs = output
             .split(whereSeparator: \.isNewline)
-            .compactMap { line in
-                let fields = line.split(
-                    separator: "\t",
-                    omittingEmptySubsequences: false
-                )
-                guard
-                    fields.count == 6,
-                    let windows = Int(fields[1]),
-                    let attached = Int(fields[2]),
-                    let created = TimeInterval(fields[3])
-                else {
-                    return nil
-                }
-                let id = String(fields[0])
-                guard Self.isManagedSessionID(id) else {
-                    return nil
-                }
-                let fallbackName = String(
-                    id.dropFirst(Self.sessionPrefix.count)
-                )
-                return TerminalSessionInfo(
-                    id: id,
-                    name: Self.displayName(
-                        customName: String(fields[5]),
-                        windowName: String(fields[4]),
-                        windowCount: windows,
-                        fallback: fallbackName
-                    ),
-                    windowCount: windows,
-                    attachedClientCount: attached,
-                    createdAt: Date(timeIntervalSince1970: created)
-                )
-            }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .map(String.init)
+            .filter(Self.isTmuxSessionID)
+        let sessions = try sessionIDs.compactMap {
+            try sessionInfo(tmuxSessionID: $0)
+        }
+        .sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
 
         for session in sessions {
             let resources = try artifactStore.prepareSession(
@@ -123,6 +101,101 @@ public final class TmuxTerminalService:
             )
         }
         return sessions
+    }
+
+    private func sessionInfo(
+        tmuxSessionID: String
+    ) throws -> TerminalSessionInfo? {
+        let id = try formatValue(
+            tmuxSessionID: tmuxSessionID,
+            format: "#{session_name}"
+        )
+        guard Self.isManagedSessionID(id) else {
+            return nil
+        }
+        let metadata = try formatValue(
+            tmuxSessionID: tmuxSessionID,
+            format:
+                "#{session_windows}|#{session_attached}|"
+                + "#{session_created}"
+        )
+        let fields = metadata.split(
+            separator: "|",
+            omittingEmptySubsequences: false
+        )
+        guard
+            fields.count == 3,
+            let windows = Int(fields[0]),
+            let attached = Int(fields[1]),
+            let created = TimeInterval(fields[2])
+        else {
+            return nil
+        }
+        let customName = Self.removingOutputTerminator(
+            try run([
+                "show-options",
+                "-qv",
+                "-t",
+                tmuxSessionID,
+                "@reland_name",
+            ])
+        )
+        let windowName = try formatValue(
+            tmuxSessionID: tmuxSessionID,
+            format: "#{window_name}"
+        )
+        let fallbackName = String(
+            id.dropFirst(Self.sessionPrefix.count)
+        )
+        return TerminalSessionInfo(
+            id: id,
+            name: Self.displayName(
+                customName: customName,
+                windowName: windowName,
+                windowCount: windows,
+                fallback: fallbackName
+            ),
+            windowCount: windows,
+            attachedClientCount: attached,
+            createdAt: Date(timeIntervalSince1970: created)
+        )
+    }
+
+    private func formatValue(
+        tmuxSessionID: String,
+        format: String
+    ) throws -> String {
+        Self.removingOutputTerminator(
+            try run([
+                "display-message",
+                "-p",
+                "-t",
+                tmuxSessionID,
+                format,
+            ])
+        )
+    }
+
+    private static func removingOutputTerminator(
+        _ output: String
+    ) -> String {
+        var value = output
+        if value.hasSuffix("\n") {
+            value.removeLast()
+        }
+        if value.hasSuffix("\r") {
+            value.removeLast()
+        }
+        return value
+    }
+
+    private static func isTmuxSessionID(_ id: String) -> Bool {
+        guard id.first == "$", id.count > 1 else {
+            return false
+        }
+        return id.dropFirst().allSatisfy {
+            $0.isASCII && $0.isNumber
+        }
     }
 
     public func createSession(
@@ -261,6 +334,7 @@ public final class TmuxTerminalService:
         let attachment = TmuxTerminalAttachment(
             tmuxPath: tmuxURL.path,
             serverArguments: serverArguments,
+            commandEnvironment: commandEnvironment,
             attachmentID: attachmentID,
             sessionID: validatedID,
             columns: columns,
@@ -299,6 +373,7 @@ public final class TmuxTerminalService:
         let script = """
         #!/bin/zsh
         export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        unset TMUX TMUX_PANE
         exec \(command)
         """
         try Data(script.utf8).write(
@@ -379,7 +454,7 @@ public final class TmuxTerminalService:
         process.arguments = serverArguments + arguments
         process.standardOutput = standardOutput
         process.standardError = standardError
-        process.environment = Self.processEnvironment()
+        process.environment = commandEnvironment
 
         try process.run()
         let outputData = standardOutput.fileHandleForReading
@@ -547,8 +622,12 @@ public final class TmuxTerminalService:
         return windowName
     }
 
-    private static func processEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+    static func processEnvironment(
+        inheriting inheritedEnvironment: [String: String]
+    ) -> [String: String] {
+        var environment = inheritedEnvironment
+        environment.removeValue(forKey: "TMUX")
+        environment.removeValue(forKey: "TMUX_PANE")
         environment["PATH"] = basePath
         environment["TERM"] = "xterm-256color"
         environment["HOME"] = NSHomeDirectory()
@@ -567,6 +646,7 @@ private final class TmuxTerminalAttachment:
 
     private let tmuxPath: String
     private let serverArguments: [String]
+    private let commandEnvironment: [String: String]
     private let outputHandler: @Sendable (Data) -> Void
     private let terminationHandler: @Sendable () -> Void
     private let lock = NSLock()
@@ -583,6 +663,7 @@ private final class TmuxTerminalAttachment:
     init(
         tmuxPath: String,
         serverArguments: [String],
+        commandEnvironment: [String: String],
         attachmentID: UUID,
         sessionID: String,
         columns: Int,
@@ -592,6 +673,7 @@ private final class TmuxTerminalAttachment:
     ) {
         self.tmuxPath = tmuxPath
         self.serverArguments = serverArguments
+        self.commandEnvironment = commandEnvironment
         self.attachmentID = attachmentID
         self.sessionID = sessionID
         self.columns = max(20, min(columns, 400))
@@ -601,18 +683,14 @@ private final class TmuxTerminalAttachment:
     }
 
     func start() {
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] =
-            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
-            + "/usr/sbin:/sbin"
-        environment["TERM"] = "xterm-256color"
-        environment["HOME"] = NSHomeDirectory()
         process.startProcess(
             executable: tmuxPath,
             args:
                 serverArguments
                 + ["attach-session", "-t", sessionID],
-            environment: environment.map { "\($0.key)=\($0.value)" },
+            environment: commandEnvironment.map {
+                "\($0.key)=\($0.value)"
+            },
             execName: "tmux",
             currentDirectory: NSHomeDirectory()
         )
