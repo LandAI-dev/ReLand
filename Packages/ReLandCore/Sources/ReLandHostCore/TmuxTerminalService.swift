@@ -216,13 +216,40 @@ public final class TmuxTerminalService:
             "Enter",
         ])
         guard
-            let session = try listSessions().first(where: {
-                $0.id == candidate
-            })
+            let session = try Self.resolveCreatedSession(
+                sessionID: candidate,
+                listSessions: listSessions
+            )
         else {
             throw TerminalServiceError.sessionCreationFailed
         }
         return session
+    }
+
+    static func resolveCreatedSession(
+        sessionID: String,
+        maximumAttempts: Int = 5,
+        retryDelay: () -> Void = {
+            Thread.sleep(forTimeInterval: 0.05)
+        },
+        listSessions: () throws -> [TerminalSessionInfo]
+    ) throws -> TerminalSessionInfo? {
+        guard maximumAttempts > 0 else {
+            return nil
+        }
+        for attempt in 1...maximumAttempts {
+            if
+                let session = try listSessions().first(where: {
+                    $0.id == sessionID
+                })
+            {
+                return session
+            }
+            if attempt < maximumAttempts {
+                retryDelay()
+            }
+        }
+        return nil
     }
 
     static func reserveSessionID(
