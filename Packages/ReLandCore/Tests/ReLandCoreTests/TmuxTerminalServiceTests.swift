@@ -4,6 +4,55 @@ import XCTest
 @testable import ReLandHostCore
 
 final class TmuxTerminalServiceTests: XCTestCase, @unchecked Sendable {
+    func testCreatedSessionLookupRetriesUntilVisible() throws {
+        let expected = TerminalSessionInfo(
+            id: "rl-terminal",
+            name: "terminal",
+            windowCount: 1,
+            attachedClientCount: 0,
+            createdAt: .now
+        )
+        var attempts = 0
+        var delays = 0
+
+        let resolved = try TmuxTerminalService.resolveCreatedSession(
+            sessionID: expected.id,
+            maximumAttempts: 3,
+            retryDelay: {
+                delays += 1
+            },
+            listSessions: {
+                attempts += 1
+                return attempts == 1 ? [] : [expected]
+            }
+        )
+
+        XCTAssertEqual(resolved, expected)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(delays, 1)
+    }
+
+    func testCreatedSessionLookupStopsAfterMaximumAttempts() throws {
+        var attempts = 0
+        var delays = 0
+
+        let resolved = try TmuxTerminalService.resolveCreatedSession(
+            sessionID: "rl-terminal",
+            maximumAttempts: 3,
+            retryDelay: {
+                delays += 1
+            },
+            listSessions: {
+                attempts += 1
+                return []
+            }
+        )
+
+        XCTAssertNil(resolved)
+        XCTAssertEqual(attempts, 3)
+        XCTAssertEqual(delays, 2)
+    }
+
     func testSessionReservationRetriesAfterDuplicateName() throws {
         var attempts: [String] = []
 
